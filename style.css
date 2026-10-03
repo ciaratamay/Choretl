@@ -299,16 +299,23 @@ input, select { font-family: inherit; }
   gap: 6px;
 }
 
+/* Three priority steps: outline, yellow, bigger yellow. */
 .star-btn {
   background: none;
   border: none;
   padding: 0;
   font-size: 1.15rem;
   line-height: 1;
-  color: var(--line);
+  color: #B9C6D6;
   flex-shrink: 0;
+  transition: color 0.15s ease, font-size 0.15s ease, transform 0.15s ease;
 }
-.star-btn.starred { color: #D9A520; }
+.star-btn.p1 { color: #D9A520; }
+.star-btn.p2 {
+  color: #D9A520;
+  font-size: 1.55rem;
+  filter: drop-shadow(0 1px 1px rgba(166,121,10,0.35));
+}
 
 .profile-dot {
   width: 10px;
@@ -724,4 +731,241 @@ input, select { font-family: inherit; }
   color: var(--ink-soft);
   display: block;
   margin-top: 2px;
+}
+
+/* ---------- Base task cards vs task instances ----------
+   All tasks shows the task itself: squarer, tinted in the owner's colour,
+   with the repeat and category up top. To-do and Done show one occurrence
+   of it: a coloured stripe down the side for whoever it's on. */
+
+.base-card {
+  border-radius: 14px;
+  border-width: 1px;
+  padding: 13px 16px 14px;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.base-kicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+}
+
+.base-title { font-size: 1.04rem; }
+
+.owner-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.instance-row {
+  border-left: 5px solid var(--stripe, var(--grey-done));
+  border-radius: 4px var(--radius) var(--radius) 4px;
+  padding: 11px 16px 12px 13px;
+}
+.instance-row .task-title { font-size: 0.97rem; }
+
+.cat-chip {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--blue-dark);
+  background: var(--blue-tint);
+  border: 1px solid #C9DAEE;
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.turns-chip {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #2F6B4F;
+  background: #E3F3EB;
+  border: 1px solid #BEDFCD;
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.pane-note {
+  margin: 0 0 12px;
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.modal-sub {
+  margin: -6px 0 16px;
+  font-size: 0.84rem;
+  color: var(--blue-dark);
+  background: var(--blue-tint);
+  border-left: 3px solid var(--blue-dark);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 10px;
+  line-height: 1.4;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 0;
+  cursor: pointer;
+}
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--blue-dark);
+  flex-shrink: 0;
+}
+
+/* ---------- Category management (Home tab) ---------- */
+
+.inline-add {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.inline-add input { flex: 1; }
+.inline-add .primary-btn {
+  width: auto;
+  margin: 0;
+  padding: 10px 18px;
+  flex-shrink: 0;
+}
+
+.category-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.category-admin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.category-admin-row input {
+  flex: 1;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--ink);
+}
+.category-admin-row input:focus {
+  outline: none;
+  border-color: var(--blue-dark);
+}
+.category-admin-row .text-btn { flex-shrink: 0; }
+
+.cat-select { max-width: 150px; }
+
+/* ---------- Summary tab ---------- */
+
+.summary-total {
+  margin: 0 0 12px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.summary-card {
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--grey-done);
+  border-radius: 6px var(--radius) var(--radius) 6px;
+  box-shadow: var(--shadow);
+  padding: 13px 16px 14px;
+  margin-bottom: 10px;
+}
+
+.summary-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-count {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.summary-open {
+  margin: 4px 0 0;
+  font-size: 0.79rem;
+  color: var(--ink-soft);
+}
+
+.summary-bar {
+  height: 6px;
+  background: var(--blue-tint);
+  border-radius: 20px;
+  overflow: hidden;
+  margin: 9px 0 10px;
+}
+.summary-bar-fill {
+  height: 100%;
+  border-radius: 20px;
+  transition: width 0.25s ease;
+}
+
+.summary-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.summary-task-list li {
+  font-size: 0.86rem;
+  color: var(--ink);
+  padding-left: 11px;
+  position: relative;
+}
+.summary-task-list li::before {
+  content: "·";
+  position: absolute;
+  left: 2px;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.summary-none {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--grey-done);
+  font-style: italic;
 }

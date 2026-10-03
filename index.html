@@ -26,6 +26,7 @@
     <button class="tab-btn" data-tab="due" disabled>To-do</button>
     <button class="tab-btn" data-tab="done" disabled>Done</button>
     <button class="tab-btn" data-tab="alltasks" disabled>All tasks</button>
+    <button class="tab-btn" data-tab="summary" disabled>Summary</button>
     <button class="tab-btn" data-tab="log" disabled>Log</button>
   </header>
 
@@ -132,7 +133,27 @@
           <h1 id="household-name-display-2"></h1>
           <p class="sub">Viewing as <strong id="me-badge"></strong> &middot; <span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
           <button class="icon-btn" id="btn-switch-profile">Switch / manage people</button>
+          <button class="icon-btn" id="btn-edit-categories">Edit categories</button>
           <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
+        </div>
+      </div>
+
+      <!-- Create / rename / delete categories -->
+      <div id="home-categories" class="hidden">
+        <div class="auth-card">
+          <button class="back-btn" id="btn-back-from-categories">&larr; Back</button>
+          <h1>Categories</h1>
+          <p class="sub">Group tasks however suits you &mdash; garden, children, car. Every tab can filter by them.</p>
+          <div class="field">
+            <label for="input-new-category">New category</label>
+            <div class="inline-add">
+              <input type="text" id="input-new-category" maxlength="30" autocomplete="off" placeholder="e.g. Garden" />
+              <button class="primary-btn" id="btn-add-category">Add</button>
+            </div>
+          </div>
+          <p class="error-text" id="category-error"></p>
+          <div class="category-admin-list" id="category-admin-list"></div>
+          <p id="category-list-empty" class="hint-text hidden">No categories yet.</p>
         </div>
       </div>
 
@@ -144,6 +165,7 @@
         <h2>To-do</h2>
         <div class="pane-head-controls">
           <select class="filter-select" id="filter-due"></select>
+          <select class="filter-select cat-select" id="filter-cat-due"></select>
           <select class="filter-select" id="sort-due">
             <option value="dueDate">Soonest due</option>
             <option value="alpha">A&ndash;Z</option>
@@ -159,7 +181,15 @@
     <section id="pane-done" class="pane">
       <div class="pane-head">
         <h2>Done</h2>
-        <select class="filter-select" id="filter-done"></select>
+        <div class="pane-head-controls">
+          <select class="filter-select" id="filter-done"></select>
+          <select class="filter-select cat-select" id="filter-cat-done"></select>
+          <select class="filter-select" id="sort-done">
+            <option value="recent">Most recently done</option>
+            <option value="oldest">Least recently done</option>
+            <option value="alpha">A&ndash;Z</option>
+          </select>
+        </div>
       </div>
       <ul class="task-list" id="list-done"></ul>
       <p class="empty-note hidden" id="done-empty">Nothing checked off yet.</p>
@@ -169,14 +199,42 @@
     <section id="pane-alltasks" class="pane">
       <div class="pane-head">
         <h2>All tasks</h2>
-        <select class="filter-select" id="alltasks-sort">
-          <option value="alpha">A&ndash;Z</option>
-          <option value="dueDate">Soonest due</option>
-        </select>
+        <div class="pane-head-controls">
+          <select class="filter-select cat-select" id="filter-cat-alltasks"></select>
+          <select class="filter-select" id="alltasks-sort">
+            <option value="alpha">A&ndash;Z</option>
+            <option value="priority">Priority</option>
+            <option value="freq-most">Most frequent</option>
+            <option value="freq-least">Least frequent</option>
+            <option value="created-new">Newest first</option>
+            <option value="created-old">Oldest first</option>
+            <option value="dueDate">Soonest due</option>
+          </select>
+        </div>
       </div>
       <input type="text" id="alltasks-search" class="search-input" placeholder="Search tasks by name&hellip;" />
+      <p class="pane-note">These are the tasks themselves &mdash; set who each one belongs to by default. To-do and Done show each time one comes around.</p>
       <ul class="task-list" id="list-alltasks"></ul>
       <p class="empty-note hidden" id="alltasks-empty">No tasks match.</p>
+    </section>
+
+    <!-- ================= SUMMARY PANE ================= -->
+    <section id="pane-summary" class="pane">
+      <div class="pane-head">
+        <h2>Summary</h2>
+        <div class="pane-head-controls">
+          <select class="filter-select cat-select" id="filter-cat-summary"></select>
+          <select class="filter-select" id="summary-period">
+            <option value="week">This week</option>
+            <option value="7">Last 7 days</option>
+            <option value="month">This month</option>
+            <option value="30">Last 30 days</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+      </div>
+      <div id="summary-body"></div>
+      <p class="empty-note hidden" id="summary-empty">Nothing done in this period yet.</p>
     </section>
 
     <!-- ================= LOG PANE ================= -->
@@ -198,6 +256,7 @@
 <div class="modal-backdrop hidden" id="task-modal-backdrop">
   <div class="modal">
     <h2 id="task-modal-title">Add task</h2>
+    <p class="modal-sub hidden" id="task-modal-sub">Editing base task &mdash; this changes the task itself and every time it comes around.</p>
 
     <div class="field">
       <label for="input-task-title">Task</label>
@@ -261,10 +320,27 @@
     </div>
 
     <div class="field">
-      <label for="input-task-assignee">Assigned to</label>
-      <select id="input-task-assignee">
-        <option value="">Unassigned</option>
+      <label for="input-task-owner">Owner</label>
+      <select id="input-task-owner">
+        <option value="">No owner</option>
       </select>
+      <p class="hint-text">Whose task this is by default. Each time it comes around it starts on them &mdash; anyone can still take it in the To-do tab.</p>
+    </div>
+
+    <div class="field hidden" id="row-take-turns">
+      <label class="checkbox-field">
+        <input type="checkbox" id="input-task-taketurns" />
+        <span>Take turns</span>
+      </label>
+      <p class="hint-text">Each repeat goes to the next person in the household after whoever did it last, instead of back to the owner.</p>
+    </div>
+
+    <div class="field">
+      <label for="input-task-category">Category</label>
+      <select id="input-task-category">
+        <option value="">No category</option>
+      </select>
+      <p class="hint-text" id="category-empty-hint">Add categories from the Home tab.</p>
     </div>
 
     <p class="error-text" id="task-modal-error"></p>
@@ -281,7 +357,7 @@
 <!-- ================= ASSIGN MODAL ================= -->
 <div class="modal-backdrop hidden" id="assign-modal-backdrop">
   <div class="modal">
-    <h2>Assign to</h2>
+    <h2 id="assign-modal-title">Assign to</h2>
     <div class="profile-list" id="assign-options"></div>
     <div class="modal-actions">
       <div style="flex:1"></div>

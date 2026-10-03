@@ -86,6 +86,32 @@ recolour anyone, or delete a person (their tasks go back to unassigned rather
 than disappearing). The device stays in the household until you tap "Leave
 this household."
 
+## How tasks work
+
+There's a difference between a **task** and a **time it comes around**, and
+the tabs split along that line:
+
+- **All tasks** is the tasks themselves. Each one has an **owner** — whose job
+  it is by default — and the card is tinted in that person's colour. Set a
+  category here too, and turn on **take turns** if a repeating task should
+  rotate rather than always land on the owner.
+- **To-do** and **Done** show the individual times a task comes around, as
+  flatter rows with a coloured stripe for whoever it's on. Reassigning one of
+  these only changes that one occurrence; next time it goes back to the owner
+  (or to the next person in line, if it takes turns). Hitting **Edit** on one
+  opens the task itself, and says so.
+
+**Priority** is the star, tapped up through three steps: outline (normal) →
+yellow (high) → bigger yellow (highest). Sort by it in either tab.
+
+**Categories** are whatever you want them to be — garden, children, car. Make
+and rename them under **Edit categories** on the Home tab; the category filter
+sits in every tab and carries your choice between them. Deleting a category
+leaves its tasks alone, it just unlabels them.
+
+**Summary** answers who's actually doing what, over this week, this month, a
+rolling 7 or 30 days, or all time.
+
 ## How the sync actually works
 
 Every change (checking a task off, reassigning it, adding a new one) writes

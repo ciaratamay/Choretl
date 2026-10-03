@@ -93,6 +93,21 @@ function ordinal(n) {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
+// How often a task comes around, in days — used for the "most / least
+// frequent" sorts. A one-off never comes around at all, so it sorts as the
+// least frequent thing there is.
+function freqIntervalDays(freq) {
+  switch (freq.type) {
+    case "daily": return 1;
+    case "custom-days": return freq.intervalDays || 1;
+    case "weekly": return 7;
+    case "custom-weeks": return (freq.intervalWeeks || 1) * 7;
+    case "monthly": return 30;
+    case "once": return Infinity;
+    default: return Infinity;
+  }
+}
+
 function advanceDue(task) {
   const base = task.dueAt.toDate();
   const f = task.freq;
@@ -158,9 +173,13 @@ let currentProfile = null;       // {id, name, color}
 let profilesCache = {};          // profileId -> {name, color}
 let sortedProfileIds = [];
 let tasksById = {};
+let categoriesCache = {};        // categoryId -> {name}
+let sortedCategoryIds = [];
+let logRows = [];                // newest-first, kept so Summary can re-filter
 let unsubProfiles = null;
 let unsubTasks = null;
 let unsubLog = null;
+let unsubCategories = null;
 let editingTaskId = null;
 let editingProfileId = null;     // null while adding a new person
 let selectedNewColor = null;
@@ -187,6 +206,17 @@ function initialForProfile(id) {
   return name.trim().charAt(0).toUpperCase();
 }
 
+// A profile colour at low opacity, for tinting a card background.
+function tintForProfile(id, alpha) {
+  const hex = colorForProfile(id).replace("#", "");
+  const n = parseInt(hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+function categoryName(id) {
+  return categoriesCache[id]?.name || null;
+}
+
 function buildAvatar(id, opts = {}) {
   const span = document.createElement("span");
   span.className = `avatar${opts.small ? " small" : ""}${id ? "" : " unassigned"}`;
@@ -206,6 +236,8 @@ const profileDoc = (id) => doc(db, "households", householdId, "profiles", id);
 const tasksCol = () => collection(db, "households", householdId, "tasks");
 const taskDoc = (id) => doc(db, "households", householdId, "tasks", id);
 const logCol = () => collection(db, "households", householdId, "log");
+const categoriesCol = () => collection(db, "households", householdId, "categories");
+const categoryDoc = (id) => doc(db, "households", householdId, "categories", id);
 
 // ---------- generic UI wiring ----------
 function wireEyeButtons() {
@@ -239,6 +271,7 @@ function showHomeStep(step) {
   $("home-pick-profile").classList.toggle("hidden", step !== "profiles");
   $("home-step-profile").classList.toggle("hidden", step !== "profile-edit");
   $("home-signed-in").classList.toggle("hidden", step !== "active");
+  $("home-categories").classList.toggle("hidden", step !== "categories");
 }
 
 // ---------- create / join household ----------
@@ -329,6 +362,7 @@ function enterHousehold(id, name) {
   $("household-name-display-2").textContent = name;
   pendingAutoSelectProfileId = localStorage.getItem(LS_PROFILE_ID);
   subscribeProfiles();
+  subscribeCategories();
   subscribeTasks();
   subscribeLog();
   startRollover();
@@ -376,12 +410,16 @@ function teardown() {
   if (unsubProfiles) unsubProfiles();
   if (unsubTasks) unsubTasks();
   if (unsubLog) unsubLog();
+  if (unsubCategories) unsubCategories();
   if (rolloverTimer) clearInterval(rolloverTimer);
-  unsubProfiles = unsubTasks = unsubLog = null;
+  unsubProfiles = unsubTasks = unsubLog = unsubCategories = null;
   rolloverTimer = null;
   tasksById = {};
   profilesCache = {};
   sortedProfileIds = [];
+  categoriesCache = {};
+  sortedCategoryIds = [];
+  logRows = [];
 }
 
 on("btn-leave-household-1", "click", () => {
@@ -424,11 +462,8 @@ function onProfilesUpdated() {
     showHomeStep("profiles");
     setTabsLocked(true);
   }
-  populateAssigneeSelect();
-  if (currentProfile) {
-    populateFilterSelect($("filter-due"));
-    populateFilterSelect($("filter-done"));
-  }
+  populateOwnerSelect();
+  if (currentProfile) populatePersonFilters();
   renderProfilePicker(); // keeps the list (and the "current" highlight) live even while hidden
   renderAll();
 }
@@ -472,9 +507,8 @@ function selectProfile(id, fallbackData) {
   localStorage.setItem(LS_PROFILE_ID, id);
   $("me-badge").textContent = currentProfile.name;
   syncIdentityUI();
-  populateAssigneeSelect();
-  populateFilterSelect($("filter-due"));
-  populateFilterSelect($("filter-done"));
+  populateOwnerSelect();
+  populatePersonFilters();
   renderProfilePicker();
   showHomeStep("active");
   setTabsLocked(false);
@@ -570,14 +604,15 @@ on("btn-save-profile", "click", async () => {
 on("btn-delete-profile", "click", async () => {
   if (!editingProfileId) return;
   const p = profilesCache[editingProfileId];
-  if (!confirm(`Delete ${p?.name || "this person"}? Tasks assigned to or done by them will become unassigned.`)) return;
+  if (!confirm(`Delete ${p?.name || "this person"}? Tasks owned by, assigned to, or done by them will become unassigned.`)) return;
   const id = editingProfileId;
   try {
     const touched = Object.values(tasksById).filter((t) =>
-      t.assignedTo === id || (t.lastCompletion && t.lastCompletion.by === id));
+      t.assignedTo === id || t.owner === id || (t.lastCompletion && t.lastCompletion.by === id));
     await Promise.all(touched.map((t) => {
       const patch = {};
       if (t.assignedTo === id) patch.assignedTo = null;
+      if (t.owner === id) patch.owner = null;
       if (t.lastCompletion && t.lastCompletion.by === id) patch["lastCompletion.by"] = null;
       return updateDoc(taskDoc(t.id), patch);
     }));
@@ -594,6 +629,153 @@ on("btn-delete-profile", "click", async () => {
   }
 });
 
+// ---------- categories ----------
+function subscribeCategories() {
+  if (unsubCategories) unsubCategories();
+  unsubCategories = onSnapshot(categoriesCol(), (snap) => {
+    categoriesCache = {};
+    snap.forEach((d) => { categoriesCache[d.id] = d.data(); });
+    sortedCategoryIds = Object.keys(categoriesCache).sort((a, b) =>
+      (categoriesCache[a].name || "").localeCompare(categoriesCache[b].name || ""));
+    populateCategorySelects();
+    renderCategoryAdmin();
+    renderAll();
+  }, () => showToast("Having trouble syncing categories right now."));
+}
+
+const CAT_FILTER_IDS = ["filter-cat-due", "filter-cat-done", "filter-cat-alltasks", "filter-cat-summary"];
+
+// A category means the same thing in every tab, so unlike the person
+// filters this one is a single shared setting that carries across them.
+let sharedCategoryFilter = "all";
+
+function populateCategorySelects() {
+  CAT_FILTER_IDS.forEach((selId) => {
+    const sel = $(selId);
+    sel.innerHTML = '<option value="all">All categories</option>';
+    sortedCategoryIds.forEach((id) => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = categoriesCache[id].name;
+      sel.appendChild(opt);
+    });
+    const none = document.createElement("option");
+    none.value = "none";
+    none.textContent = "No category";
+    sel.appendChild(none);
+    sel.value = [...sel.options].some((o) => o.value === sharedCategoryFilter) ? sharedCategoryFilter : "all";
+  });
+
+  // The category picker inside the task modal.
+  const modalSel = $("input-task-category");
+  const keep = modalSel.value;
+  modalSel.innerHTML = '<option value="">No category</option>';
+  sortedCategoryIds.forEach((id) => {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = categoriesCache[id].name;
+    modalSel.appendChild(opt);
+  });
+  if ([...modalSel.options].some((o) => o.value === keep)) modalSel.value = keep;
+  $("category-empty-hint").classList.toggle("hidden", sortedCategoryIds.length > 0);
+}
+
+function onCategoryFilterChange(e) {
+  sharedCategoryFilter = e.target.value;
+  CAT_FILTER_IDS.forEach((selId) => {
+    const sel = $(selId);
+    if ([...sel.options].some((o) => o.value === sharedCategoryFilter)) sel.value = sharedCategoryFilter;
+  });
+  renderAll();
+}
+
+function matchesCategoryFilter(task) {
+  if (sharedCategoryFilter === "all") return true;
+  if (sharedCategoryFilter === "none") return !task.categoryId;
+  return task.categoryId === sharedCategoryFilter;
+}
+
+on("btn-edit-categories", "click", () => {
+  $("category-error").textContent = "";
+  $("input-new-category").value = "";
+  renderCategoryAdmin();
+  showHomeStep("categories");
+});
+on("btn-back-from-categories", "click", () => showHomeStep("active"));
+on("btn-add-category", "click", () => addCategory());
+on("input-new-category", "keydown", (e) => { if (e.key === "Enter") addCategory(); });
+
+async function addCategory() {
+  const name = $("input-new-category").value.trim();
+  const err = $("category-error");
+  err.textContent = "";
+  if (!name) { err.textContent = "Give the category a name."; return; }
+  if (Object.values(categoriesCache).some((c) => (c.name || "").toLowerCase() === name.toLowerCase())) {
+    err.textContent = "There's already a category with that name."; return;
+  }
+  try {
+    await addDoc(categoriesCol(), { name, createdAt: serverTimestamp() });
+    $("input-new-category").value = "";
+  } catch (e) {
+    err.textContent = `Couldn't add that — ${e.message || e.code || "unknown error"}.`;
+  }
+}
+
+function renderCategoryAdmin() {
+  const wrap = $("category-admin-list");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  $("category-list-empty").classList.toggle("hidden", sortedCategoryIds.length > 0);
+
+  sortedCategoryIds.forEach((id) => {
+    const row = document.createElement("div");
+    row.className = "category-admin-row";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 30;
+    input.value = categoriesCache[id].name || "";
+    // Renaming saves when you tab away or press Enter — no extra save button.
+    input.onchange = async () => {
+      const next = input.value.trim();
+      if (!next) { input.value = categoriesCache[id].name || ""; return; }
+      try {
+        await updateDoc(categoryDoc(id), { name: next });
+      } catch (e) {
+        showToast("Couldn't rename that category.");
+      }
+    };
+    input.onkeydown = (e) => { if (e.key === "Enter") input.blur(); };
+    row.appendChild(input);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "text-btn danger";
+    del.textContent = "Delete";
+    del.onclick = () => deleteCategory(id);
+    row.appendChild(del);
+
+    wrap.appendChild(row);
+  });
+}
+
+async function deleteCategory(id) {
+  const name = categoriesCache[id]?.name || "this category";
+  const used = Object.values(tasksById).filter((t) => t.categoryId === id);
+  const msg = used.length
+    ? `Delete "${name}"? ${used.length} task${used.length === 1 ? "" : "s"} will lose their category — the tasks themselves stay.`
+    : `Delete "${name}"?`;
+  if (!confirm(msg)) return;
+  try {
+    await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), { categoryId: null })));
+    await deleteDoc(categoryDoc(id));
+    if (sharedCategoryFilter === id) sharedCategoryFilter = "all";
+    showToast("Category deleted");
+  } catch (e) {
+    showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
+  }
+}
+
 // ---------- tabs ----------
 function setTabsLocked(locked) {
   document.querySelectorAll(".tab-btn[data-tab]").forEach((btn) => {
@@ -606,7 +788,8 @@ function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("active", p.id === `pane-${tab}`));
-  $("btn-add-task").classList.toggle("hidden", !currentProfile || tab === "home" || tab === "log");
+  $("btn-add-task").classList.toggle("hidden",
+    !currentProfile || tab === "home" || tab === "log" || tab === "summary");
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -614,23 +797,33 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 });
 
 // ---------- selects ----------
-function populateAssigneeSelect() {
-  const sel = $("input-task-assignee");
-  sel.innerHTML = '<option value="">Unassigned</option>';
+function populateOwnerSelect() {
+  const sel = $("input-task-owner");
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">No owner</option>';
   sortedProfileIds.forEach((id) => {
     const opt = document.createElement("option");
     opt.value = id;
     opt.textContent = profilesCache[id].name;
     sel.appendChild(opt);
   });
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
-// The "Mine / Anyone / [person]" filter is one shared setting, not one per
-// tab — picking it in To-do carries straight over to Done, and back.
-let sharedPersonFilter = "mine";
-
-function populateFilterSelect(sel) {
-  sel.innerHTML = '<option value="mine">Mine</option><option value="anyone">Anyone</option>';
+// The To-do and Done person filters are deliberately separate settings:
+// To-do filters on who a task is *on* right now, Done on who actually did
+// it, so carrying a choice between them would answer the wrong question.
+function populateFilterSelect(sel, kind) {
+  const mineLabel = kind === "done" ? "Done by me" : "Mine";
+  const anyoneLabel = kind === "done" ? "Done by anyone" : "Anyone";
+  const keep = sel.value;
+  sel.innerHTML = "";
+  [["mine", mineLabel], ["anyone", anyoneLabel]].forEach(([value, label]) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  });
   sortedProfileIds.forEach((id) => {
     if (currentProfile && id === currentProfile.id) return;
     const opt = document.createElement("option");
@@ -638,20 +831,12 @@ function populateFilterSelect(sel) {
     opt.textContent = profilesCache[id].name;
     sel.appendChild(opt);
   });
-  sel.value = [...sel.options].some((o) => o.value === sharedPersonFilter) ? sharedPersonFilter : "mine";
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "mine";
 }
 
-function syncFilterSelects() {
-  [$("filter-due"), $("filter-done")].forEach((sel) => {
-    if ([...sel.options].some((o) => o.value === sharedPersonFilter)) sel.value = sharedPersonFilter;
-  });
-}
-
-function onPersonFilterChange(e) {
-  sharedPersonFilter = e.target.value;
-  syncFilterSelects();
-  renderDue();
-  renderDoneList();
+function populatePersonFilters() {
+  populateFilterSelect($("filter-due"), "due");
+  populateFilterSelect($("filter-done"), "done");
 }
 
 function buildDoneBySelect(currentId) {
@@ -670,28 +855,44 @@ function buildDoneBySelect(currentId) {
 function buildAssignButton(task) {
   const btn = document.createElement("button");
   btn.className = "text-btn";
-  btn.textContent = "Assign";
-  btn.onclick = () => openAssignModal(task);
+  btn.textContent = "Reassign";
+  btn.onclick = () => openAssignModal(task, "assign");
+  return btn;
+}
+
+function buildOwnerButton(task) {
+  const btn = document.createElement("button");
+  btn.className = "text-btn";
+  btn.textContent = task.owner && profilesCache[task.owner]
+    ? profilesCache[task.owner].name
+    : "Set owner";
+  btn.onclick = () => openAssignModal(task, "owner");
   return btn;
 }
 
 let assignModalTaskId = null;
+let assignModalMode = "assign"; // "assign" = this occurrence, "owner" = the base task
 
-function openAssignModal(task) {
+function openAssignModal(task, mode = "assign") {
   assignModalTaskId = task.id;
+  assignModalMode = mode;
+  const isOwner = mode === "owner";
+  const selectedId = isOwner ? task.owner : task.assignedTo;
+  $("assign-modal-title").textContent = isOwner ? "Whose task is this?" : "Who's doing this one?";
+
   const wrap = $("assign-options");
   wrap.innerHTML = "";
 
-  const unassignedBtn = document.createElement("button");
-  unassignedBtn.className = `profile-pick${!task.assignedTo ? " current" : ""}`;
-  unassignedBtn.appendChild(buildAvatar(null, { small: true }));
-  unassignedBtn.appendChild(document.createTextNode("Unassigned"));
-  unassignedBtn.onclick = () => commitAssign(null);
-  wrap.appendChild(unassignedBtn);
+  const noneBtn = document.createElement("button");
+  noneBtn.className = `profile-pick${!selectedId ? " current" : ""}`;
+  noneBtn.appendChild(buildAvatar(null, { small: true }));
+  noneBtn.appendChild(document.createTextNode(isOwner ? "No owner" : "Unassigned"));
+  noneBtn.onclick = () => commitAssign(null);
+  wrap.appendChild(noneBtn);
 
   sortedProfileIds.forEach((id) => {
     const b = document.createElement("button");
-    b.className = `profile-pick${task.assignedTo === id ? " current" : ""}`;
+    b.className = `profile-pick${selectedId === id ? " current" : ""}`;
     b.appendChild(buildAvatar(id, { small: true }));
     b.appendChild(document.createTextNode(profilesCache[id].name));
     b.onclick = () => commitAssign(id);
@@ -703,7 +904,16 @@ function openAssignModal(task) {
 
 function commitAssign(idOrNull) {
   if (!assignModalTaskId) return;
-  updateDoc(taskDoc(assignModalTaskId), { assignedTo: idOrNull });
+  const task = tasksById[assignModalTaskId];
+  if (assignModalMode === "owner") {
+    // Changing the owner moves the occurrence that's currently open too,
+    // unless somebody has deliberately taken it off the owner already.
+    const patch = { owner: idOrNull };
+    if (task && (!task.assignedTo || task.assignedTo === task.owner)) patch.assignedTo = idOrNull;
+    updateDoc(taskDoc(assignModalTaskId), patch);
+  } else {
+    updateDoc(taskDoc(assignModalTaskId), { assignedTo: idOrNull });
+  }
   closeAssignModal();
 }
 
@@ -714,14 +924,32 @@ function closeAssignModal() {
 
 on("btn-cancel-assign", "click", closeAssignModal);
 
+// Priority is a three-step tap: outline (normal) -> yellow star (high) ->
+// bigger yellow star (highest) -> back to outline.
+const PRIORITY_LABELS = ["Normal priority", "High priority", "Highest priority"];
+
 function buildStarButton(task) {
+  const p = task.priority || 0;
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = `star-btn${task.starred ? " starred" : ""}`;
-  btn.textContent = task.starred ? "★" : "☆";
-  btn.title = task.starred ? "Unstar" : "Star to prioritise";
-  btn.onclick = () => updateDoc(taskDoc(task.id), { starred: !task.starred });
+  btn.className = `star-btn p${p}`;
+  btn.textContent = p === 0 ? "☆" : "★";
+  btn.title = `${PRIORITY_LABELS[p]} — tap to change`;
+  btn.setAttribute("aria-label", PRIORITY_LABELS[p]);
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    updateDoc(taskDoc(task.id), { priority: (p + 1) % 3 });
+  };
   return btn;
+}
+
+// With "take turns" on, a repeat goes to whoever is next in the household
+// list after the person who last did it, wrapping back round to the start.
+function nextTurnProfile(basisId) {
+  if (!sortedProfileIds.length) return null;
+  const i = basisId ? sortedProfileIds.indexOf(basisId) : -1;
+  if (i === -1) return sortedProfileIds[0];
+  return sortedProfileIds[(i + 1) % sortedProfileIds.length];
 }
 
 // ---------- tasks / log subscriptions ----------
@@ -729,18 +957,34 @@ function subscribeTasks() {
   if (unsubTasks) unsubTasks();
   unsubTasks = onSnapshot(tasksCol(), (snap) => {
     tasksById = {};
-    snap.forEach((d) => { tasksById[d.id] = { id: d.id, ...d.data() }; });
+    snap.forEach((d) => { tasksById[d.id] = normaliseTask(d.id, d.data()); });
     renderAll();
   }, () => showToast("Having trouble syncing right now."));
+}
+
+// Tasks written by older versions of the app don't have owner / priority /
+// takeTurns / categoryId. Filling the gaps on the way in means the rest of
+// the app can read them plainly, and the old boolean star becomes "high".
+function normaliseTask(id, raw) {
+  return {
+    id,
+    ...raw,
+    priority: typeof raw.priority === "number" ? raw.priority : (raw.starred ? 1 : 0),
+    owner: raw.owner ?? null,
+    assignedTo: raw.assignedTo ?? null,
+    takeTurns: !!raw.takeTurns,
+    categoryId: raw.categoryId ?? null,
+  };
 }
 
 function subscribeLog() {
   if (unsubLog) unsubLog();
   const q = query(logCol(), orderBy("doneAt", "desc"));
   unsubLog = onSnapshot(q, (snap) => {
-    const rows = [];
-    snap.forEach((d) => rows.push(d.data()));
-    renderLogList(rows);
+    logRows = [];
+    snap.forEach((d) => logRows.push(d.data()));
+    renderLogList(logRows);
+    renderSummary();
   });
 }
 
@@ -762,6 +1006,7 @@ function renderAll() {
   renderDue();
   renderDoneList();
   renderAllTasks();
+  renderSummary();
 }
 
 // matches an assignment-style filter (To-do tab): "mine" counts unassigned too
@@ -794,13 +1039,13 @@ function renderDue() {
     if (t.lastCompletion && taskStatus(t, now) === "pending") return false;
     return true;
   });
-  list_ = list_.filter((t) => matchesAssignFilter(filterVal, t.assignedTo));
+  list_ = list_.filter((t) => matchesAssignFilter(filterVal, t.assignedTo) && matchesCategoryFilter(t));
 
   if (sortVal === "alpha") {
     list_.sort((a, b) => a.title.localeCompare(b.title));
   } else if (sortVal === "priority") {
     list_.sort((a, b) => {
-      if (!!b.starred !== !!a.starred) return (b.starred ? 1 : 0) - (a.starred ? 1 : 0);
+      if ((b.priority || 0) !== (a.priority || 0)) return (b.priority || 0) - (a.priority || 0);
       return a.dueAt.toDate() - b.dueAt.toDate();
     });
   } else {
@@ -815,9 +1060,16 @@ function renderDue() {
 
 function renderDoneList() {
   const filterVal = $("filter-done").value;
+  const sortVal = $("sort-done").value;
   let done = Object.values(tasksById).filter((t) => !!t.lastCompletion);
-  done = done.filter((t) => matchesDoneFilter(filterVal, t.lastCompletion.skipped ? null : t.lastCompletion.by));
-  done.sort((a, b) => (b.lastCompletion.at?.toDate?.() ?? 0) - (a.lastCompletion.at?.toDate?.() ?? 0));
+  done = done.filter((t) =>
+    matchesDoneFilter(filterVal, t.lastCompletion.skipped ? null : t.lastCompletion.by)
+    && matchesCategoryFilter(t));
+
+  const doneAtMs = (t) => t.lastCompletion.at?.toDate?.()?.getTime() ?? 0;
+  if (sortVal === "alpha") done.sort((a, b) => a.title.localeCompare(b.title));
+  else if (sortVal === "oldest") done.sort((a, b) => doneAtMs(a) - doneAtMs(b));
+  else done.sort((a, b) => doneAtMs(b) - doneAtMs(a));
 
   const list = $("list-done");
   list.innerHTML = "";
@@ -825,22 +1077,39 @@ function renderDoneList() {
   done.forEach((t) => list.appendChild(renderDoneRow(t)));
 }
 
-on("filter-due", "change", onPersonFilterChange);
+on("filter-due", "change", renderDue);
 on("sort-due", "change", renderDue);
-on("filter-done", "change", onPersonFilterChange);
+on("filter-done", "change", renderDoneList);
+on("sort-done", "change", renderDoneList);
 on("alltasks-search", "input", renderAllTasks);
 on("alltasks-sort", "change", renderAllTasks);
+on("summary-period", "change", renderSummary);
+CAT_FILTER_IDS.forEach((id) => on(id, "change", onCategoryFilterChange));
 
 function renderAllTasks() {
   if (!currentProfile) return;
   const searchVal = $("alltasks-search").value.trim().toLowerCase();
   const sortVal = $("alltasks-sort").value;
 
-  let all = Object.values(tasksById);
+  let all = Object.values(tasksById).filter(matchesCategoryFilter);
   if (searchVal) all = all.filter((t) => t.title.toLowerCase().includes(searchVal));
 
-  if (sortVal === "alpha") all.sort((a, b) => a.title.localeCompare(b.title));
-  else all.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+  const createdMs = (t) => t.createdAt?.toDate?.()?.getTime() ?? 0;
+  if (sortVal === "alpha") {
+    all.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (sortVal === "priority") {
+    all.sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.title.localeCompare(b.title));
+  } else if (sortVal === "freq-most") {
+    all.sort((a, b) => freqIntervalDays(a.freq) - freqIntervalDays(b.freq) || a.title.localeCompare(b.title));
+  } else if (sortVal === "freq-least") {
+    all.sort((a, b) => freqIntervalDays(b.freq) - freqIntervalDays(a.freq) || a.title.localeCompare(b.title));
+  } else if (sortVal === "created-new") {
+    all.sort((a, b) => createdMs(b) - createdMs(a));
+  } else if (sortVal === "created-old") {
+    all.sort((a, b) => createdMs(a) - createdMs(b));
+  } else {
+    all.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+  }
 
   const list = $("list-alltasks");
   list.innerHTML = "";
@@ -848,34 +1117,59 @@ function renderAllTasks() {
   all.forEach((t) => list.appendChild(renderAllTasksRow(t)));
 }
 
-// This tab is a plain reference list of the tasks themselves — no done/
-// skipped/overdue state, just what the task is and how it repeats.
+function buildCategoryChip(task) {
+  const name = categoryName(task.categoryId);
+  if (!name) return null;
+  const chip = document.createElement("span");
+  chip.className = "cat-chip";
+  chip.textContent = name;
+  return chip;
+}
+
+// The base task itself — not an occurrence of it. Deliberately a different
+// shape from the To-do / Done rows: it carries the owner (whose task this is
+// by default) rather than a per-occurrence assignment, and it's tinted in
+// the owner's colour so you can see at a glance whose things these are.
 function renderAllTasksRow(task) {
   const li = document.createElement("li");
-  li.className = "task-row";
-
-  const avatar = buildAvatar(task.assignedTo);
+  li.className = "task-row base-card";
+  if (task.owner && profilesCache[task.owner]) {
+    li.style.background = tintForProfile(task.owner, 0.1);
+    li.style.borderColor = tintForProfile(task.owner, 0.45);
+  }
 
   const main = document.createElement("div");
   main.className = "task-main";
+
+  const kicker = document.createElement("div");
+  kicker.className = "base-kicker";
+  kicker.textContent = freqSummary(task.freq);
+  const chip = buildCategoryChip(task);
+  if (chip) kicker.appendChild(chip);
+  if (task.takeTurns && task.freq.type !== "once") {
+    const turns = document.createElement("span");
+    turns.className = "turns-chip";
+    turns.textContent = "Takes turns";
+    kicker.appendChild(turns);
+  }
 
   const titleRow = document.createElement("div");
   titleRow.className = "title-row";
   titleRow.appendChild(buildStarButton(task));
   const title = document.createElement("span");
-  title.className = "task-title";
+  title.className = "task-title base-title";
   title.textContent = task.title;
   titleRow.appendChild(title);
 
   const meta = document.createElement("div");
   meta.className = "task-meta";
-  meta.appendChild(buildAssignButton(task));
 
-  const freqNote = document.createElement("span");
-  freqNote.className = "freq-note";
-  freqNote.style.margin = "0";
-  freqNote.textContent = freqSummary(task.freq);
-  meta.appendChild(freqNote);
+  const ownerLabel = document.createElement("span");
+  ownerLabel.className = "owner-label";
+  ownerLabel.textContent = "Owner";
+  meta.appendChild(ownerLabel);
+  meta.appendChild(buildAvatar(task.owner, { small: true }));
+  meta.appendChild(buildOwnerButton(task));
 
   const editBtn = document.createElement("button");
   editBtn.className = "text-btn";
@@ -883,12 +1177,150 @@ function renderAllTasksRow(task) {
   editBtn.onclick = () => openEditTaskModal(task);
   meta.appendChild(editBtn);
 
+  main.appendChild(kicker);
   main.appendChild(titleRow);
   main.appendChild(meta);
 
-  li.appendChild(avatar);
   li.appendChild(main);
   return li;
+}
+
+// ---------- summary ----------
+// The start of the window the Summary tab is reporting on. "This week"
+// starts Monday; "this month" starts on the 1st; the numeric options are
+// rolling windows counted back from now.
+function summaryPeriodStart(value) {
+  const now = new Date();
+  if (value === "all") return null;
+  if (value === "week") {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dow = (d.getDay() + 6) % 7; // 0 = Monday
+    return addDays(d, -dow);
+  }
+  if (value === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+  const days = parseInt(value, 10) || 7;
+  return addDays(now, -days);
+}
+
+function summaryPeriodLabel(value) {
+  switch (value) {
+    case "week": return "this week";
+    case "month": return "this month";
+    case "all": return "all time";
+    default: return `the last ${value} days`;
+  }
+}
+
+function renderSummary() {
+  const body = $("summary-body");
+  if (!body || !currentProfile) return;
+  const period = $("summary-period").value;
+  const start = summaryPeriodStart(period);
+  const label = summaryPeriodLabel(period);
+
+  // Older log entries predate the category field, so fall back to the
+  // category the task carries now.
+  const rowCategory = (r) => r.categoryId ?? tasksById[r.taskId]?.categoryId ?? null;
+  const rows = logRows.filter((r) => {
+    const at = r.doneAt?.toDate?.();
+    if (start && (!at || at < start)) return false;
+    if (sharedCategoryFilter === "all") return true;
+    if (sharedCategoryFilter === "none") return !rowCategory(r);
+    return rowCategory(r) === sharedCategoryFilter;
+  });
+
+  // Per person: what they did in the window, plus what's on them right now.
+  const byPerson = {};
+  const ensure = (id) => (byPerson[id] = byPerson[id] || { done: 0, titles: {}, open: 0 });
+  sortedProfileIds.forEach(ensure);
+  let skipped = 0;
+  rows.forEach((r) => {
+    if (r.skipped) { skipped += 1; return; }
+    if (!r.doneBy || !profilesCache[r.doneBy]) return;
+    const rec = ensure(r.doneBy);
+    rec.done += 1;
+    rec.titles[r.taskTitle] = (rec.titles[r.taskTitle] || 0) + 1;
+  });
+
+  const now = new Date();
+  Object.values(tasksById).forEach((t) => {
+    if (!matchesCategoryFilter(t)) return;
+    if (t.freq.type === "once" && t.lastCompletion) return;
+    if (t.lastCompletion && taskStatus(t, now) === "pending") return;
+    if (t.assignedTo && profilesCache[t.assignedTo]) ensure(t.assignedTo).open += 1;
+  });
+
+  const totalDone = rows.filter((r) => !r.skipped).length;
+  body.innerHTML = "";
+  $("summary-empty").classList.toggle("hidden", totalDone > 0 || skipped > 0);
+
+  const head = document.createElement("p");
+  head.className = "summary-total";
+  head.textContent = `${totalDone} task${totalDone === 1 ? "" : "s"} done ${label}`
+    + (skipped ? ` · ${skipped} skipped` : "");
+  body.appendChild(head);
+
+  // Busiest first — that's the question this tab is really answering.
+  const ranked = sortedProfileIds.slice().sort((a, b) =>
+    (byPerson[b]?.done || 0) - (byPerson[a]?.done || 0)
+    || (profilesCache[a].name || "").localeCompare(profilesCache[b].name || ""));
+
+  ranked.forEach((id) => {
+    const rec = byPerson[id] || { done: 0, titles: {}, open: 0 };
+    const card = document.createElement("div");
+    card.className = "summary-card";
+    card.style.borderLeftColor = colorForProfile(id);
+
+    const top = document.createElement("div");
+    top.className = "summary-card-head";
+    top.appendChild(buildAvatar(id, { small: true }));
+    const name = document.createElement("span");
+    name.className = "summary-name";
+    name.textContent = profilesCache[id].name;
+    top.appendChild(name);
+    const share = totalDone ? Math.round((rec.done / totalDone) * 100) : 0;
+    const count = document.createElement("span");
+    count.className = "summary-count";
+    count.textContent = totalDone
+      ? `${rec.done} done · ${share}%`
+      : `${rec.done} done`;
+    top.appendChild(count);
+    card.appendChild(top);
+
+    const openNote = document.createElement("p");
+    openNote.className = "summary-open";
+    openNote.textContent = `${rec.open} on their list right now`;
+    card.appendChild(openNote);
+
+    // A bar makes the split between people readable at a glance.
+    const bar = document.createElement("div");
+    bar.className = "summary-bar";
+    const fill = document.createElement("div");
+    fill.className = "summary-bar-fill";
+    fill.style.width = `${share}%`;
+    fill.style.background = colorForProfile(id);
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    const titles = Object.entries(rec.titles).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (titles.length) {
+      const ul = document.createElement("ul");
+      ul.className = "summary-task-list";
+      titles.forEach(([title, n]) => {
+        const li = document.createElement("li");
+        li.textContent = n > 1 ? `${title} ×${n}` : title;
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    } else {
+      const none = document.createElement("p");
+      none.className = "summary-none";
+      none.textContent = "Nothing done in this period.";
+      card.appendChild(none);
+    }
+
+    body.appendChild(card);
+  });
 }
 
 function fmtLogWhen(date) {
@@ -926,11 +1358,17 @@ function renderLogList(rows) {
   });
 }
 
+// One occurrence of a task — not the task itself. A left stripe in the
+// colour of whoever it's on right now, and the actions that apply to this
+// time round only.
 function renderOpenRow(task, now) {
   const li = document.createElement("li");
-  li.className = "task-row";
+  li.className = "task-row instance-row";
   const status = taskStatus(task, now);
   if (status === "overdue") li.classList.add("overdue-row");
+  li.style.setProperty("--stripe", task.assignedTo && profilesCache[task.assignedTo]
+    ? colorForProfile(task.assignedTo)
+    : "var(--grey-done)");
 
   const main = document.createElement("div");
   main.className = "task-main";
@@ -942,6 +1380,8 @@ function renderOpenRow(task, now) {
   title.className = "task-title";
   title.textContent = task.title;
   titleRow.appendChild(title);
+  const chip = buildCategoryChip(task);
+  if (chip) titleRow.appendChild(chip);
   if (status === "overdue") {
     const badge = document.createElement("span");
     badge.className = "status-badge overdue";
@@ -993,9 +1433,12 @@ function renderOpenRow(task, now) {
 
 function renderDoneRow(task) {
   const li = document.createElement("li");
-  li.className = "task-row";
+  li.className = "task-row instance-row";
   const lc = task.lastCompletion;
   if (lc.skipped) li.classList.add("skipped-row");
+  li.style.setProperty("--stripe", !lc.skipped && lc.by && profilesCache[lc.by]
+    ? colorForProfile(lc.by)
+    : "var(--grey-done)");
 
   const main = document.createElement("div");
   main.className = "task-main";
@@ -1006,6 +1449,8 @@ function renderDoneRow(task) {
   title.className = "task-title";
   title.textContent = task.title;
   titleRow.appendChild(title);
+  const chip = buildCategoryChip(task);
+  if (chip) titleRow.appendChild(chip);
 
   const meta = document.createElement("div");
   meta.className = "task-meta";
@@ -1034,7 +1479,6 @@ function renderDoneRow(task) {
   when.style.margin = "0";
   when.textContent = lc.at ? fmtRelative(lc.at.toDate()) : "";
   meta.appendChild(when);
-  meta.appendChild(buildAssignButton(task));
 
   const undoBtn = document.createElement("button");
   undoBtn.className = "text-btn";
@@ -1062,9 +1506,19 @@ function renderDoneRow(task) {
 async function completeTask(task, byId, skipped) {
   const prevDueAt = task.dueAt;
   const nextDue = advanceDue(task);
+
+  // Who the next occurrence lands on: the next person in line if this task
+  // takes turns, otherwise straight back to whoever owns it.
+  const basis = byId || task.assignedTo || task.owner;
+  const nextAssignee = task.takeTurns && task.freq.type !== "once"
+    ? nextTurnProfile(basis)
+    : (task.owner ?? null);
+
   await updateDoc(taskDoc(task.id), {
     dueAt: Timestamp.fromDate(nextDue),
     prevDueAt,
+    prevAssignedTo: task.assignedTo ?? null,
+    assignedTo: nextAssignee,
     lastCompletion: {
       by: skipped ? null : byId,
       at: serverTimestamp(),
@@ -1074,17 +1528,24 @@ async function completeTask(task, byId, skipped) {
   await addDoc(logCol(), {
     taskId: task.id,
     taskTitle: task.title,
+    categoryId: task.categoryId ?? null,
     doneBy: skipped ? null : byId,
     doneByName: skipped ? null : (profilesCache[byId]?.name || "Someone"),
     skipped: !!skipped,
     doneAt: serverTimestamp(),
   });
-  showToast(skipped ? "Skipped" : "Marked done");
+
+  let msg = skipped ? "Skipped" : "Marked done";
+  if (task.takeTurns && task.freq.type !== "once" && nextAssignee && profilesCache[nextAssignee]) {
+    msg += ` — next one's ${profilesCache[nextAssignee].name}`;
+  }
+  showToast(msg);
 }
 
 async function undoCompletion(task) {
   await updateDoc(taskDoc(task.id), {
     dueAt: task.prevDueAt || task.dueAt,
+    assignedTo: task.prevAssignedTo ?? task.owner ?? null,
     lastCompletion: null,
   });
 }
@@ -1138,11 +1599,14 @@ function updateFreqRows() {
   $("row-weekday").classList.toggle("hidden", type !== "custom-weeks");
   $("wrap-interval-weeks").classList.toggle("hidden", type !== "custom-weeks");
   $("row-monthday").classList.toggle("hidden", type !== "monthly");
+  // Taking turns only means anything for something that comes back around.
+  $("row-take-turns").classList.toggle("hidden", type === "once");
 }
 
 function openAddTaskModal() {
   editingTaskId = null;
   $("task-modal-title").textContent = "Add task";
+  $("task-modal-sub").classList.add("hidden");
   $("input-task-title").value = "";
   $("input-task-freq").value = "daily";
   $("input-interval-n").value = 2;
@@ -1151,16 +1615,21 @@ function openAddTaskModal() {
   $("input-monthday").value = 1;
   $("input-task-date").value = localDateStr(new Date());
   $("input-task-time").value = "";
-  $("input-task-assignee").value = "";
+  $("input-task-owner").value = "";
+  $("input-task-taketurns").checked = false;
+  $("input-task-category").value = sortedCategoryIds.includes(sharedCategoryFilter) ? sharedCategoryFilter : "";
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.add("hidden");
   updateFreqRows();
   $("task-modal-backdrop").classList.remove("hidden");
 }
 
+// Editing always edits the base task, wherever you opened it from — so from
+// the To-do or Done tab it says so plainly, since you tapped an occurrence.
 function openEditTaskModal(task) {
   editingTaskId = task.id;
   $("task-modal-title").textContent = "Edit task";
+  $("task-modal-sub").classList.toggle("hidden", activeTab === "alltasks");
   $("input-task-title").value = task.title;
   $("input-task-freq").value = task.freq.type;
   $("input-interval-n").value = task.freq.intervalDays || 2;
@@ -1172,7 +1641,9 @@ function openEditTaskModal(task) {
   $("input-task-time").value = task.hasTime
     ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
     : "";
-  $("input-task-assignee").value = task.assignedTo || "";
+  $("input-task-owner").value = task.owner || "";
+  $("input-task-taketurns").checked = !!task.takeTurns;
+  $("input-task-category").value = task.categoryId || "";
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.remove("hidden");
   updateFreqRows();
@@ -1203,18 +1674,30 @@ async function saveTask() {
   const timeStr = $("input-task-time").value;
   const hasTime = !!timeStr;
   const dueDate = hasTime ? new Date(`${dateStr}T${timeStr}`) : new Date(`${dateStr}T00:00`);
-  const assignedTo = $("input-task-assignee").value || null;
+  const owner = $("input-task-owner").value || null;
+  const takeTurns = type !== "once" && $("input-task-taketurns").checked;
+  const categoryId = $("input-task-category").value || null;
 
   $("btn-save-task").disabled = true;
   try {
     if (editingTaskId) {
-      await updateDoc(taskDoc(editingTaskId), {
-        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime, assignedTo,
-      });
+      const existing = tasksById[editingTaskId];
+      const patch = {
+        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
+        owner, takeTurns, categoryId,
+      };
+      // Changing the owner carries the currently-open occurrence with it,
+      // unless somebody has already taken that occurrence off the owner.
+      if (existing && owner !== existing.owner
+          && (!existing.assignedTo || existing.assignedTo === existing.owner)) {
+        patch.assignedTo = owner;
+      }
+      await updateDoc(taskDoc(editingTaskId), patch);
     } else {
       await addDoc(tasksCol(), {
-        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime, assignedTo,
-        starred: false, createdBy: currentProfile.id, createdAt: serverTimestamp(),
+        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
+        owner, assignedTo: owner, takeTurns, categoryId, priority: 0,
+        createdBy: currentProfile.id, createdAt: serverTimestamp(),
       });
     }
     closeTaskModal();
