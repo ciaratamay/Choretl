@@ -334,11 +334,24 @@ function enterHousehold(id, name) {
   startRollover();
 }
 
+// Keeps the "Home" tab label and the tab bar's colour in sync with whoever
+// is currently active — their name instead of "Home", their colour instead
+// of the default blue.
+function syncIdentityUI() {
+  $("tab-home-label").textContent = currentProfile ? currentProfile.name : "Home";
+  if (currentProfile) {
+    document.documentElement.style.setProperty("--active-tab-color", colorForProfile(currentProfile.id));
+  } else {
+    document.documentElement.style.removeProperty("--active-tab-color");
+  }
+}
+
 function leaveHousehold() {
   teardown();
   householdId = null;
   householdName = null;
   currentProfile = null;
+  syncIdentityUI();
   localStorage.removeItem(LS_HOUSEHOLD_ID);
   localStorage.removeItem(LS_HOUSEHOLD_NAME);
   localStorage.removeItem(LS_PROFILE_ID);
@@ -391,25 +404,23 @@ function subscribeProfiles() {
 }
 
 function onProfilesUpdated() {
-  if (currentProfile) {
-    if (!profilesCache[currentProfile.id]) {
-      // The active profile was deleted (maybe by the other person) — drop back to the picker.
-      currentProfile = null;
-      localStorage.removeItem(LS_PROFILE_ID);
-      renderProfilePicker();
-      showHomeStep("profiles");
-      setTabsLocked(true);
-      switchTab("home");
-    } else {
-      currentProfile = { id: currentProfile.id, ...profilesCache[currentProfile.id] };
-      $("me-badge").textContent = currentProfile.name;
-    }
+  if (currentProfile && !profilesCache[currentProfile.id]) {
+    // The active profile was deleted (maybe by the other person) — drop back to the picker.
+    currentProfile = null;
+    localStorage.removeItem(LS_PROFILE_ID);
+    syncIdentityUI();
+    showHomeStep("profiles");
+    setTabsLocked(true);
+    switchTab("home");
+  } else if (currentProfile) {
+    currentProfile = { id: currentProfile.id, ...profilesCache[currentProfile.id] };
+    $("me-badge").textContent = currentProfile.name;
+    syncIdentityUI();
   } else if (pendingAutoSelectProfileId && profilesCache[pendingAutoSelectProfileId]) {
     const id = pendingAutoSelectProfileId;
     pendingAutoSelectProfileId = null;
     selectProfile(id);
-  } else if (!currentProfile) {
-    renderProfilePicker();
+  } else {
     showHomeStep("profiles");
     setTabsLocked(true);
   }
@@ -418,6 +429,7 @@ function onProfilesUpdated() {
     populateFilterSelect($("filter-due"));
     populateFilterSelect($("filter-done"));
   }
+  renderProfilePicker(); // keeps the list (and the "current" highlight) live even while hidden
   renderAll();
 }
 
@@ -431,7 +443,7 @@ function renderProfilePicker() {
     row.className = "profile-pick-row";
 
     const btn = document.createElement("button");
-    btn.className = "profile-pick";
+    btn.className = `profile-pick${currentProfile && id === currentProfile.id ? " current" : ""}`;
     btn.appendChild(buildAvatar(id, { small: true }));
     btn.appendChild(document.createTextNode(p.name));
     btn.onclick = () => selectProfile(id);
@@ -459,22 +471,23 @@ function selectProfile(id, fallbackData) {
   currentProfile = { id, ...data };
   localStorage.setItem(LS_PROFILE_ID, id);
   $("me-badge").textContent = currentProfile.name;
+  syncIdentityUI();
   populateAssigneeSelect();
   populateFilterSelect($("filter-due"));
   populateFilterSelect($("filter-done"));
+  renderProfilePicker();
   showHomeStep("active");
   setTabsLocked(false);
   renderAll();
-  switchTab("due");
+  // Deliberately no tab switch here — picking or switching a profile stays
+  // on the Home tab until the person navigates themselves.
 }
 
 on("btn-switch-profile", "click", () => {
-  currentProfile = null;
-  localStorage.removeItem(LS_PROFILE_ID);
+  // The active profile stays active (and highlighted) while browsing this
+  // list — tapping a different name is what actually switches.
   renderProfilePicker();
   showHomeStep("profiles");
-  setTabsLocked(true);
-  switchTab("home");
 });
 
 on("btn-show-add-profile", "click", () => openAddProfile());
@@ -612,8 +625,11 @@ function populateAssigneeSelect() {
   });
 }
 
+// The "Mine / Anyone / [person]" filter is one shared setting, not one per
+// tab — picking it in To-do carries straight over to Done, and back.
+let sharedPersonFilter = "mine";
+
 function populateFilterSelect(sel) {
-  const prev = sel.value;
   sel.innerHTML = '<option value="mine">Mine</option><option value="anyone">Anyone</option>';
   sortedProfileIds.forEach((id) => {
     if (currentProfile && id === currentProfile.id) return;
@@ -622,7 +638,20 @@ function populateFilterSelect(sel) {
     opt.textContent = profilesCache[id].name;
     sel.appendChild(opt);
   });
-  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  sel.value = [...sel.options].some((o) => o.value === sharedPersonFilter) ? sharedPersonFilter : "mine";
+}
+
+function syncFilterSelects() {
+  [$("filter-due"), $("filter-done")].forEach((sel) => {
+    if ([...sel.options].some((o) => o.value === sharedPersonFilter)) sel.value = sharedPersonFilter;
+  });
+}
+
+function onPersonFilterChange(e) {
+  sharedPersonFilter = e.target.value;
+  syncFilterSelects();
+  renderDue();
+  renderDoneList();
 }
 
 function buildDoneBySelect(currentId) {
@@ -758,7 +787,12 @@ function renderDue() {
     // A one-off task that's already been done or skipped has no "next
     // occurrence" to show — it only lives on in the Done tab from here.
     if (t.freq.type === "once" && t.lastCompletion) return false;
-    return taskStatus(t, now) !== "pending";
+    // "pending" (not yet appeared) only hides a task once it's already
+    // finished a prior cycle — it's waiting for the next one to open up.
+    // A task that's never been completed should always show here, however
+    // far off its due date is, so you can see and plan for it ahead of time.
+    if (t.lastCompletion && taskStatus(t, now) === "pending") return false;
+    return true;
   });
   list_ = list_.filter((t) => matchesAssignFilter(filterVal, t.assignedTo));
 
@@ -791,9 +825,9 @@ function renderDoneList() {
   done.forEach((t) => list.appendChild(renderDoneRow(t)));
 }
 
-on("filter-due", "change", renderDue);
+on("filter-due", "change", onPersonFilterChange);
 on("sort-due", "change", renderDue);
-on("filter-done", "change", renderDoneList);
+on("filter-done", "change", onPersonFilterChange);
 on("alltasks-search", "input", renderAllTasks);
 on("alltasks-sort", "change", renderAllTasks);
 
@@ -965,9 +999,13 @@ function renderDoneRow(task) {
 
   const main = document.createElement("div");
   main.className = "task-main";
-  const title = document.createElement("div");
+  const titleRow = document.createElement("div");
+  titleRow.className = "title-row";
+  titleRow.appendChild(buildStarButton(task));
+  const title = document.createElement("span");
   title.className = "task-title";
   title.textContent = task.title;
+  titleRow.appendChild(title);
 
   const meta = document.createElement("div");
   meta.className = "task-meta";
@@ -1010,7 +1048,7 @@ function renderDoneRow(task) {
   editBtn.onclick = () => openEditTaskModal(task);
   meta.appendChild(editBtn);
 
-  main.appendChild(title);
+  main.appendChild(titleRow);
   main.appendChild(meta);
 
   li.appendChild(main);

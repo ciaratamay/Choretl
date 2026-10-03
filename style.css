@@ -40,13 +40,14 @@ input, select { font-family: inherit; }
 .tabbar {
   display: flex;
   align-items: center;
-  background: var(--blue-dark);
+  background: var(--active-tab-color, var(--blue-dark));
   padding: 0 8px;
   position: sticky;
   top: 0;
   z-index: 20;
   box-shadow: 0 2px 8px rgba(22,58,100,0.25);
   overflow-x: auto;
+  transition: background 0.2s ease;
 }
 
 @media (max-width: 480px) {
