@@ -217,6 +217,14 @@
             <p class="hint-text">Only you see this list, its tasks, and anything done on it. Leave it off to share it with the household.</p>
           </div>
 
+          <div class="field">
+            <label class="checkbox-field">
+              <input type="checkbox" id="input-list-assignment" checked />
+              <span>Tasks here get assigned to someone</span>
+            </label>
+            <p class="hint-text">Turn this off for a list that's just yours to work through &mdash; no owner, no assigning, no filtering by person.</p>
+          </div>
+
           <div class="field" id="wrap-list-owner">
             <label for="input-list-owner">Owner</label>
             <select id="input-list-owner"><option value="">No owner</option></select>
@@ -231,18 +239,31 @@
             <p class="hint-text">Turn this off to keep a list to its own tab &mdash; handy for work tasks you don't want counted alongside the housework.</p>
           </div>
 
-          <div class="modal-row">
-            <div class="field">
-              <label for="input-list-filter">Opens filtered by</label>
-              <select id="input-list-filter"></select>
+          <div class="field">
+            <label>Ways to sort it</label>
+            <div class="chip-picker" id="list-sort-options"></div>
+            <p class="hint-text">Only the ones you pick appear on this list's tab. Pick one and the sort control disappears altogether.</p>
+          </div>
+
+          <div class="field" id="wrap-list-filters">
+            <label>Ways to filter it</label>
+            <div class="chip-picker" id="list-filter-options"></div>
+            <p class="hint-text">Which choices the person filter offers here.</p>
+          </div>
+
+          <div class="field">
+            <label>Tags</label>
+            <div class="chip-picker" id="list-tagsource">
+              <button type="button" class="chip" data-source="shared">Household categories</button>
+              <button type="button" class="chip" data-source="own">Its own tags</button>
             </div>
-            <div class="field">
-              <label for="input-list-sort">Sorted by</label>
-              <select id="input-list-sort">
-                <option value="dueDate">Soonest due</option>
-                <option value="alpha">A&ndash;Z</option>
-                <option value="priority">Priority</option>
-              </select>
+            <div id="wrap-list-tags" class="hidden">
+              <div class="inline-add" style="margin-top:9px;">
+                <input type="text" id="input-list-tag" maxlength="24" autocomplete="off" placeholder="New tag for this list" />
+                <button class="primary-btn" id="btn-add-list-tag">Add</button>
+              </div>
+              <div class="category-admin-list" id="list-tag-admin"></div>
+              <p class="hint-text">These belong to this list alone and don't show up anywhere else.</p>
             </div>
           </div>
 

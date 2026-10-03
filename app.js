@@ -29,6 +29,21 @@ function showToast(msg) {
   showToast._h = setTimeout(() => t.classList.remove("show"), 2200);
 }
 
+// Firestore's own wording for a rules problem ("Missing or insufficient
+// permissions") doesn't tell you what to do about it. Each new collection
+// this app grows needs a matching rule published, so say that outright.
+function friendlyError(e) {
+  const text = `${(e && e.code) || ""} ${(e && e.message) || ""}`;
+  if (/permission[- ]denied|insufficient permission/i.test(text)) {
+    return "the database rules don't allow this yet. Publish firestore.rules "
+      + "from the project in your Firebase console (Firestore Database → Rules), then try again";
+  }
+  if (/unavailable|failed to get|network|offline/i.test(text)) {
+    return "there's no connection right now — it'll save once you're back online";
+  }
+  return (e && (e.message || e.code)) || "unknown error";
+}
+
 function slugify(s) {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "household";
 }
@@ -496,7 +511,7 @@ on("btn-create-household", "click", async () => {
     localStorage.setItem(LS_HOUSEHOLD_PASSWORD, password);
     enterHousehold(id, name);
   } catch (e) {
-    err.textContent = `Couldn't create that household — ${e.message || e.code || "unknown error"}.`;
+    err.textContent = `Couldn't create that household — ${friendlyError(e)}.`;
   } finally {
     $("btn-create-household").disabled = false;
   }
@@ -524,7 +539,7 @@ async function doJoinHousehold() {
     localStorage.setItem(LS_HOUSEHOLD_PASSWORD, password);
     enterHousehold(id, data.name || name);
   } catch (e) {
-    err.textContent = `Couldn't join right now — ${e.message || e.code || "unknown error"}.`;
+    err.textContent = `Couldn't join right now — ${friendlyError(e)}.`;
   } finally {
     $("btn-join-household").disabled = false;
   }
@@ -889,7 +904,7 @@ on("btn-save-profile", "click", async () => {
       selectProfile(ref.id, { name, color: selectedNewColor });
     }
   } catch (e) {
-    err.textContent = `Couldn't save — ${e.message || e.code || "unknown error"}.`;
+    err.textContent = `Couldn't save — ${friendlyError(e)}.`;
   } finally {
     $("btn-save-profile").disabled = false;
   }
@@ -919,7 +934,7 @@ on("btn-delete-profile", "click", async () => {
     showHomeStep("profiles");
     showToast("Person deleted");
   } catch (e) {
-    showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
+    showToast(`Couldn't delete — ${friendlyError(e)}`);
   }
 });
 
@@ -1005,10 +1020,14 @@ on("btn-back-from-lists", "click", () => showHomeStep("active"));
 on("btn-back-to-lists", "click", () => { renderListAdmin(); showHomeStep("lists"); });
 on("btn-show-add-list", "click", () => openListEditor(null));
 on("input-list-private", "change", syncListOwnerRow);
+on("input-list-assignment", "change", syncListOwnerRow);
 
 function syncListOwnerRow() {
-  // A private list is yours by definition — nobody else to hand it to.
-  $("wrap-list-owner").classList.toggle("hidden", $("input-list-private").checked);
+  // No owner to set on a private list (it's yours), nor on one where tasks
+  // aren't assigned to anyone at all. The person filter goes with it.
+  const assigns = $("input-list-assignment").checked;
+  $("wrap-list-owner").classList.toggle("hidden", $("input-list-private").checked || !assigns);
+  $("wrap-list-filters").classList.toggle("hidden", !assigns);
 }
 
 function renderListAdmin() {
@@ -1056,6 +1075,51 @@ function renderListAdmin() {
   });
 }
 
+// What a list's tab can offer. Picking these is how you decide which
+// controls that tab even has, rather than setting a default.
+const SORT_CHOICES = [
+  ["dueDate", "Soonest due"],
+  ["alpha", "A–Z"],
+  ["priority", "Priority"],
+];
+
+function listSortOptions(l) {
+  const picked = Array.isArray(l && l.sortOptions) ? l.sortOptions : null;
+  const valid = (picked || SORT_CHOICES.map(([v]) => v))
+    .filter((v) => SORT_CHOICES.some(([k]) => k === v));
+  return valid.length ? valid : ["dueDate"];
+}
+
+function listFilterChoices() {
+  return [["mine", "Mine"], ["anyone", "Anyone"], ["unassigned", "Unassigned"]]
+    .concat(sortedProfileIds.map((id) => [id, profilesCache[id].name]));
+}
+
+function listFilterOptions(l) {
+  const all = listFilterChoices().map(([v]) => v);
+  const picked = Array.isArray(l && l.filterOptions) ? l.filterOptions : null;
+  const valid = (picked || all).filter((v) => all.includes(v));
+  return valid.length ? valid : ["anyone"];
+}
+
+function listUsesOwnTags(l) {
+  return !!(l && l.tagSource === "own");
+}
+
+function listTags(l) {
+  return Array.isArray(l && l.tags) ? l.tags : [];
+}
+
+// The tags a task can carry: its list's own, or the household's categories.
+function tagsForList(l) {
+  return listUsesOwnTags(l)
+    ? listTags(l).map((t) => [t.id, t.name])
+    : sortedCategoryIds.map((id) => [id, categoriesCache[id].name]);
+}
+
+// Everything being edited in the list form that isn't a plain input.
+let listDraft = { sortOptions: [], filterOptions: [], tagSource: "shared", tags: [] };
+
 function openListEditor(id) {
   editingListId = id;
   const l = id ? listsCache[id] : null;
@@ -1064,6 +1128,15 @@ function openListEditor(id) {
   $("input-list-emoji").value = l ? (l.emoji || "") : "";
   $("input-list-private").checked = l ? !!l.private : false;
   $("input-list-summaries").checked = l ? l.includeInSummaries !== false : true;
+  $("input-list-assignment").checked = l ? l.assignment !== false : true;
+  listDraft = {
+    sortOptions: listSortOptions(l),
+    filterOptions: listFilterOptions(l),
+    tagSource: listUsesOwnTags(l) ? "own" : "shared",
+    tags: listTags(l).map((t) => ({ ...t })),
+  };
+  $("input-list-tag").value = "";
+  renderListOptionPickers();
   $("list-error").textContent = "";
   $("btn-delete-list").classList.toggle("hidden", !l);
 
@@ -1075,12 +1148,105 @@ function openListEditor(id) {
   $("list-order-hint").textContent = `1 puts it first after Home. Leave it at ${max} to keep it last, whatever else gets added.`;
 
   populateOwnerLikeSelect($("input-list-owner"), l ? l.owner : null);
-  fillPersonOptions($("input-list-filter"), "due");
-  $("input-list-filter").value = l && l.defaultFilter ? l.defaultFilter : "anyone";
-  $("input-list-sort").value = l && l.defaultSort ? l.defaultSort : "dueDate";
-
   syncListOwnerRow();
   showHomeStep("list-edit");
+}
+
+function renderListOptionPickers() {
+  const sortWrap = $("list-sort-options");
+  sortWrap.innerHTML = "";
+  SORT_CHOICES.forEach(([value, label]) => {
+    sortWrap.appendChild(buildChip(label, listDraft.sortOptions.includes(value), () => {
+      const i = listDraft.sortOptions.indexOf(value);
+      if (i >= 0) {
+        // Something has to be left to sort by.
+        if (listDraft.sortOptions.length === 1) return;
+        listDraft.sortOptions.splice(i, 1);
+      } else {
+        listDraft.sortOptions.push(value);
+      }
+      renderListOptionPickers();
+    }));
+  });
+
+  const filterWrap = $("list-filter-options");
+  filterWrap.innerHTML = "";
+  listFilterChoices().forEach(([value, label]) => {
+    filterWrap.appendChild(buildChip(label, listDraft.filterOptions.includes(value), () => {
+      const i = listDraft.filterOptions.indexOf(value);
+      if (i >= 0) {
+        if (listDraft.filterOptions.length === 1) return;
+        listDraft.filterOptions.splice(i, 1);
+      } else {
+        listDraft.filterOptions.push(value);
+      }
+      renderListOptionPickers();
+    }));
+  });
+
+  document.querySelectorAll("#list-tagsource .chip").forEach((btn) => {
+    btn.classList.toggle("selected", btn.dataset.source === listDraft.tagSource);
+    btn.setAttribute("aria-pressed", btn.dataset.source === listDraft.tagSource ? "true" : "false");
+  });
+  $("wrap-list-tags").classList.toggle("hidden", listDraft.tagSource !== "own");
+  renderListTagAdmin();
+  syncListOwnerRow();
+}
+
+document.querySelectorAll("#list-tagsource .chip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    listDraft.tagSource = btn.dataset.source;
+    renderListOptionPickers();
+  });
+});
+
+function renderListTagAdmin() {
+  const wrap = $("list-tag-admin");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  listDraft.tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "category-admin-row";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 24;
+    input.value = tag.name;
+    input.onchange = () => {
+      const next = input.value.trim();
+      if (next) tag.name = next;
+      else input.value = tag.name;
+    };
+    row.appendChild(input);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "text-btn danger";
+    del.textContent = "Remove";
+    del.onclick = () => {
+      listDraft.tags = listDraft.tags.filter((t) => t.id !== tag.id);
+      renderListTagAdmin();
+    };
+    row.appendChild(del);
+    wrap.appendChild(row);
+  });
+}
+
+on("btn-add-list-tag", "click", () => addListTag());
+on("input-list-tag", "keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addListTag(); } });
+
+function addListTag() {
+  const name = $("input-list-tag").value.trim();
+  if (!name) return;
+  if (listDraft.tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+    $("list-error").textContent = "This list already has a tag with that name.";
+    return;
+  }
+  $("list-error").textContent = "";
+  // Prefixed so a list's own tag can never be confused with a household one.
+  listDraft.tags.push({ id: `own_${Math.random().toString(36).slice(2, 10)}`, name });
+  $("input-list-tag").value = "";
+  renderListTagAdmin();
 }
 
 function populateOwnerLikeSelect(sel, current) {
@@ -1116,10 +1282,14 @@ on("btn-save-list", "click", async () => {
     })(),
     private: isPrivate,
     privateTo: isPrivate ? (currentProfile ? currentProfile.id : null) : null,
-    owner: isPrivate ? null : ($("input-list-owner").value || null),
+    owner: (isPrivate || !$("input-list-assignment").checked)
+      ? null : ($("input-list-owner").value || null),
     includeInSummaries: $("input-list-summaries").checked,
-    defaultFilter: $("input-list-filter").value,
-    defaultSort: $("input-list-sort").value,
+    assignment: $("input-list-assignment").checked,
+    sortOptions: listDraft.sortOptions.slice(),
+    filterOptions: listDraft.filterOptions.slice(),
+    tagSource: listDraft.tagSource,
+    tags: listDraft.tags.map((t) => ({ id: t.id, name: t.name })),
   };
 
   $("btn-save-list").disabled = true;
@@ -1133,7 +1303,7 @@ on("btn-save-list", "click", async () => {
     showHomeStep("lists");
     showToast("List saved");
   } catch (e) {
-    err.textContent = `Couldn't save — ${e.message || e.code || "unknown error"}.`;
+    err.textContent = `Couldn't save — ${friendlyError(e)}.`;
   } finally {
     $("btn-save-list").disabled = false;
   }
@@ -1214,7 +1384,7 @@ on("btn-confirm-dellist", "click", async () => {
     showHomeStep("lists");
     showToast(deleteListChoice === "delete" ? "List and its tasks deleted" : "List deleted");
   } catch (e) {
-    showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
+    showToast(`Couldn't delete — ${friendlyError(e)}`);
   } finally {
     $("btn-confirm-dellist").disabled = false;
   }
@@ -1282,8 +1452,10 @@ function matchesCategoryFilter(task) {
 
 // Tags that no longer exist (deleted elsewhere) shouldn't keep filtering.
 function pruneCategoryFilter() {
+  const ownTagIds = new Set();
+  Object.values(listsCache).forEach((l) => listTags(l).forEach((t) => ownTagIds.add(t.id)));
   [...categoryFilter].forEach((id) => {
-    if (id !== "none" && !categoriesCache[id]) categoryFilter.delete(id);
+    if (id !== "none" && !categoriesCache[id] && !ownTagIds.has(id)) categoryFilter.delete(id);
   });
 }
 
@@ -1325,10 +1497,11 @@ function renderListFilterOptions() {
 function renderCategoryFilterOptions() {
   const wrap = $("catfilter-options");
   wrap.innerHTML = "";
-  $("catfilter-empty").classList.toggle("hidden", sortedCategoryIds.length > 0);
-
-  const entries = sortedCategoryIds.map((id) => [id, categoriesCache[id].name]);
-  if (sortedCategoryIds.length) entries.push(["none", "Untagged"]);
+  // On a list that keeps its own tags, those are what there is to filter by.
+  const onList = listById(activeListId());
+  const entries = tagsForList(listUsesOwnTags(onList) ? onList : null);
+  $("catfilter-empty").classList.toggle("hidden", entries.length > 0);
+  if (entries.length) entries.push(["none", "Untagged"]);
 
   entries.forEach(([value, label]) => {
     wrap.appendChild(buildChip(label, categoryFilter.has(value), () => {
@@ -1367,18 +1540,45 @@ const taskModalCategories = new Set();
 
 function renderTaskCategoryChips() {
   const wrap = $("input-task-categories");
+  const l = listById($("input-task-list") ? $("input-task-list").value : null);
+  const own = listUsesOwnTags(l);
+  const choices = tagsForList(l);
+
   wrap.innerHTML = "";
-  sortedCategoryIds.forEach((id) => {
-    wrap.appendChild(buildChip(categoriesCache[id].name, taskModalCategories.has(id), () => {
+  choices.forEach(([id, name]) => {
+    wrap.appendChild(buildChip(name, taskModalCategories.has(id), () => {
       if (taskModalCategories.has(id)) taskModalCategories.delete(id);
       else taskModalCategories.add(id);
       renderTaskCategoryChips();
     }));
   });
-  const none = sortedCategoryIds.length === 0;
+
+  const none = choices.length === 0;
+  $("category-empty-hint").textContent = own
+    ? "This list has no tags yet — add them when you edit the list."
+    : "Add categories from the Home tab.";
   $("category-empty-hint").classList.toggle("hidden", !none);
+  $("category-multi-hint").textContent = own
+    ? "This list's own tags. Tap to tag this task — it can carry as many as you like."
+    : "Tap to tag this task — it can carry as many as you like.";
   $("category-multi-hint").classList.toggle("hidden", none);
 }
+
+// Moving a task between lists can change which tags apply, and whether it's
+// assigned at all, so the form follows along.
+function syncTaskListFields() {
+  const l = listById($("input-task-list").value);
+  const assigns = !l || l.assignment !== false;
+  $("wrap-task-owner").classList.toggle("hidden", !assigns);
+  if (!assigns) $("input-task-owner").value = "";
+  // Tags are scoped to their source, so drop any that don't belong here.
+  const allowed = new Set(tagsForList(l).map(([id]) => id));
+  [...taskModalCategories].forEach((id) => { if (!allowed.has(id)) taskModalCategories.delete(id); });
+  renderTaskCategoryChips();
+  updateOwnerRow();
+}
+
+on("input-task-list", "change", syncTaskListFields);
 
 on("btn-edit-categories", "click", () => {
   $("category-error").textContent = "";
@@ -1402,7 +1602,7 @@ async function addCategory() {
     await addDoc(categoriesCol(), { name, createdAt: serverTimestamp() });
     $("input-new-category").value = "";
   } catch (e) {
-    err.textContent = `Couldn't add that — ${e.message || e.code || "unknown error"}.`;
+    err.textContent = `Couldn't add that — ${friendlyError(e)}.`;
   }
 }
 
@@ -1461,7 +1661,7 @@ async function deleteCategory(id) {
     syncCategoryFilterButtons();
     showToast("Category deleted");
   } catch (e) {
-    showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
+    showToast(`Couldn't delete — ${friendlyError(e)}`);
   }
 }
 
@@ -1579,16 +1779,7 @@ function switchTab(tab) {
   const changedList = tab !== activeTab && tab.startsWith("list:");
   activeTab = tab;
   markActiveTab();
-  if (changedList) {
-    const l = listById(activeListId());
-    if (l) {
-      populateListPaneFilter();
-      const want = l.defaultFilter || "anyone";
-      $("filter-list").value = [...$("filter-list").options].some((o) => o.value === want)
-        ? want : "anyone";
-      $("sort-list").value = l.defaultSort || "dueDate";
-    }
-  }
+  if (changedList) populateListPaneFilter();
   const noAdd = tab === "home" || tab === "log" || tab === "summary";
   $("btn-add-task").classList.toggle("hidden", !currentProfile || noAdd);
   if (activeListId()) renderCustomList();
@@ -1681,13 +1872,49 @@ function populateFilterSelect(sel, kind) {
   sel.value = kind === "done" ? doneFilter : assignFilter;
 }
 
-// A custom list keeps its own filter, seeded from the list's own default,
-// rather than sharing the one To-do uses.
+// Whether a task's list bothers with assignment at all.
+function taskAssigns(task) {
+  const l = listById(task.listId);
+  return !l || l.assignment !== false;
+}
+
+// A custom list's tab only offers the filter and sort choices that list was
+// given — and none at all where there'd be nothing to choose between.
 function populateListPaneFilter() {
+  const l = listById(activeListId());
   const sel = $("filter-list");
   const keep = sel.value;
-  fillPersonOptions(sel, "due");
-  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  const assigns = !l || l.assignment !== false;
+  const choices = assigns ? listFilterOptions(l) : [];
+  const labels = Object.fromEntries(listFilterChoices());
+
+  sel.innerHTML = "";
+  choices.forEach((value) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = labels[value] || value;
+    sel.appendChild(opt);
+  });
+  // Open on the widest choice available, so a task you've just added to the
+  // list doesn't vanish behind a "Mine" filter the moment you save it.
+  const opening = choices.includes("anyone") ? "anyone" : choices[0];
+  sel.value = choices.includes(keep) ? keep : (opening || "anyone");
+  // Nothing to pick between is just clutter.
+  sel.classList.toggle("hidden", choices.length < 2);
+
+  const sortSel = $("sort-list");
+  const sorts = listSortOptions(l);
+  const sortLabels = Object.fromEntries(SORT_CHOICES);
+  const keepSort = sortSel.value;
+  sortSel.innerHTML = "";
+  sorts.forEach((value) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = sortLabels[value];
+    sortSel.appendChild(opt);
+  });
+  sortSel.value = sorts.includes(keepSort) ? keepSort : sorts[0];
+  sortSel.classList.toggle("hidden", sorts.length < 2);
 }
 
 function populatePersonFilters() {
@@ -2001,11 +2228,13 @@ function renderCustomList() {
   note.classList.toggle("hidden", notes.length === 0);
 
   const now = new Date();
+  const assigns = list.assignment !== false;
   const filterVal = $("filter-list").value;
   const sortVal = $("sort-list").value;
   let rows = Object.values(tasksById)
     .filter((t) => t.listId === id && isOpenNow(t, now))
-    .filter((t) => matchesAssignFilter(filterVal, t.assignedTo) && matchesCategoryFilter(t));
+    .filter((t) => (!assigns || matchesAssignFilter(filterVal, t.assignedTo))
+      && matchesCategoryFilter(t));
 
   if (sortVal === "alpha") rows.sort((a, b) => a.title.localeCompare(b.title));
   else if (sortVal === "priority") {
@@ -2085,8 +2314,9 @@ function renderAllTasks() {
 
 // Every tag a task carries, as little labels.
 function appendCategoryChips(parent, task) {
+  const names = Object.fromEntries(tagsForList(listById(task.listId)));
   (task.categoryIds || []).forEach((id) => {
-    const name = categoryName(id);
+    const name = names[id] || categoryName(id);
     if (!name) return;
     const chip = document.createElement("span");
     chip.className = "cat-chip";
@@ -2120,7 +2350,7 @@ function buildInstancePanel(task, now) {
 
     const actions = document.createElement("div");
     actions.className = "inst-actions";
-    actions.appendChild(buildAvatar(task.assignedTo, { small: true }));
+    if (taskAssigns(task)) actions.appendChild(buildAvatar(task.assignedTo, { small: true }));
 
     const doneBtn = document.createElement("button");
     doneBtn.type = "button";
@@ -2131,14 +2361,16 @@ function buildInstancePanel(task, now) {
     doneBtn.onclick = () => openDoneModal(task);
     actions.appendChild(doneBtn);
 
-    const assignBtn = document.createElement("button");
-    assignBtn.type = "button";
-    assignBtn.className = "inst-btn inst-assign";
-    assignBtn.innerHTML = personIconSvg();
-    assignBtn.title = "Give this one to someone";
-    assignBtn.setAttribute("aria-label", `Assign ${task.title}`);
-    assignBtn.onclick = () => openAssignModal(task, "assign");
-    actions.appendChild(assignBtn);
+    if (taskAssigns(task)) {
+      const assignBtn = document.createElement("button");
+      assignBtn.type = "button";
+      assignBtn.className = "inst-btn inst-assign";
+      assignBtn.innerHTML = personIconSvg();
+      assignBtn.title = "Give this one to someone";
+      assignBtn.setAttribute("aria-label", `Assign ${task.title}`);
+      assignBtn.onclick = () => openAssignModal(task, "assign");
+      actions.appendChild(assignBtn);
+    }
 
     wrap.appendChild(actions);
   } else {
@@ -2229,12 +2461,14 @@ function renderAllTasksRow(task, now) {
   const meta = document.createElement("div");
   meta.className = "task-meta";
 
-  const ownerLabel = document.createElement("span");
-  ownerLabel.className = "owner-label";
-  ownerLabel.textContent = "Owner";
-  meta.appendChild(ownerLabel);
-  meta.appendChild(buildAvatar(task.owner, { small: true }));
-  meta.appendChild(buildOwnerButton(task));
+  if (taskAssigns(task)) {
+    const ownerLabel = document.createElement("span");
+    ownerLabel.className = "owner-label";
+    ownerLabel.textContent = "Owner";
+    meta.appendChild(ownerLabel);
+    meta.appendChild(buildAvatar(task.owner, { small: true }));
+    meta.appendChild(buildOwnerButton(task));
+  }
 
   const editBtn = document.createElement("button");
   editBtn.className = "text-btn";
@@ -2417,10 +2651,12 @@ function buildCheckRow(task, now, done = false) {
       : (profilesCache[lc.by]?.name || "Someone");
     meta.textContent = `${who} · ${fmtRelative(lc.at.toDate())}`;
   } else {
-    const whose = task.assignedTo && profilesCache[task.assignedTo]
-      ? profilesCache[task.assignedTo].name
-      : "Unassigned";
-    meta.textContent = `${whose} · ${dueText(task, status)}`;
+    const whose = !taskAssigns(task)
+      ? null
+      : (task.assignedTo && profilesCache[task.assignedTo]
+        ? profilesCache[task.assignedTo].name
+        : "Unassigned");
+    meta.textContent = whose ? `${whose} · ${dueText(task, status)}` : dueText(task, status);
   }
   main.appendChild(meta);
   li.appendChild(main);
@@ -2694,8 +2930,10 @@ function renderOpenRow(task, now) {
 
   const meta = document.createElement("div");
   meta.className = "task-meta";
-  meta.appendChild(buildAvatar(task.assignedTo, { small: true }));
-  meta.appendChild(buildAssignButton(task));
+  if (taskAssigns(task)) {
+    meta.appendChild(buildAvatar(task.assignedTo, { small: true }));
+    meta.appendChild(buildAssignButton(task));
+  }
 
   const doneBtn = document.createElement("button");
   doneBtn.className = "done-btn";
@@ -3038,10 +3276,23 @@ function populateDateOptions(type) {
 
 // A task that takes turns belongs to whoever's next, not to an owner, so
 // the owner picker goes away and anything already set is cleared.
+// Whether the list this task sits on assigns tasks to people at all.
+function taskModalAssigns() {
+  const sel = $("input-task-list");
+  const l = listById(sel ? sel.value : null);
+  return !l || l.assignment !== false;
+}
+
 function updateOwnerRow() {
+  const assigns = taskModalAssigns();
   const turns = $("input-task-repeats").checked && $("input-task-taketurns").checked;
-  $("wrap-task-owner").classList.toggle("hidden", turns);
-  if (turns) $("input-task-owner").value = "";
+  const hide = turns || !assigns;
+  $("wrap-task-owner").classList.toggle("hidden", hide);
+  if (hide) $("input-task-owner").value = "";
+  // Taking turns is about handing a task round, so it goes where nobody is
+  // being assigned anything — and comes back when they are.
+  if (!assigns) $("input-task-taketurns").checked = false;
+  $("row-take-turns").classList.toggle("hidden", !assigns);
 }
 
 on("input-task-duemode", "change", updateFreqRows);

@@ -195,10 +195,18 @@ one has:
 - **private to me**, which hides the list, its tasks and anything done on it
   from everyone else in the household. A work list stays out of your partner's
   tabs, To-do, Log and Summary entirely;
-- an **owner** for a shared list, so tasks added there start on that person;
+- **tasks here get assigned to someone** — turn it off for a list that's just
+  yours to work through, and the owner, assigning, take-turns and person
+  filter all disappear from it;
+- an **owner** for a shared list that does assign, so tasks added there start
+  on that person;
 - **include in the Home checklist, Log and Summary** — turn it off to keep a
   list to its own tab, so work tasks aren't counted alongside the housework;
-- the **filter and sort** the tab opens with.
+- **which ways to sort and filter it** — you pick the choices that tab even
+  offers, not a default. Leave one sort and the control disappears entirely;
+- **tags**: use the household's categories, or give the list its own, created
+  in the list editor and used nowhere else. Moving a task between lists swaps
+  its tag choices over and drops any that don't belong where it landed.
 
 Lists also appear in the filter sheet beside categories, so you can leave one
 out of any tab — handy for copying a list without your work items in it.
