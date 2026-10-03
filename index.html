@@ -19,19 +19,7 @@
 
   <header class="tabbar">
     <div class="brand">
-      <svg class="brand-turtle" viewBox="0 0 48 48" aria-hidden="true">
-        <ellipse cx="24" cy="18" rx="7.5" ry="7.5" fill="#9FE0B7"/>
-        <circle cx="21" cy="16.5" r="1.6" fill="#fff"/>
-        <circle cx="27" cy="16.5" r="1.6" fill="#fff"/>
-        <circle cx="21" cy="16.8" r="0.9" fill="#1C222A"/>
-        <circle cx="27" cy="16.8" r="0.9" fill="#1C222A"/>
-        <ellipse cx="10" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
-        <ellipse cx="38" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
-        <ellipse cx="13" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
-        <ellipse cx="35" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
-        <ellipse cx="24" cy="25" rx="15" ry="13.5" fill="#3FA06A" stroke="#1F6E49" stroke-width="1.4"/>
-        <path d="M24 14 L33 21 L29.5 32 L18.5 32 L15 21 Z" fill="#6CC293" stroke="#1F6E49" stroke-width="1"/>
-      </svg>
+      <img class="brand-turtle" src="icon-192.png" alt="" aria-hidden="true" />
       <span class="brand-word">Choretl</span>
     </div>
     <button class="tab-btn active" data-tab="home">Home</button>
@@ -46,87 +34,105 @@
     <!-- ================= HOME PANE ================= -->
     <section id="pane-home" class="pane active">
 
-      <!-- Signed-out: profile picker / password / create -->
-      <div id="home-signed-out">
+      <!-- No household joined yet: create or join -->
+      <div id="home-no-household">
         <div class="auth-card">
+          <div class="auth-logo">
+            <img class="brand-turtle large" src="icon-192.png" alt="Choretl" />
+            <h1 class="brand-word">Choretl</h1>
+          </div>
+          <p class="sub">Join your household, or set a new one up.</p>
 
-          <div id="auth-step-pick">
-            <div class="auth-logo">
-              <svg class="brand-turtle large" viewBox="0 0 48 48" aria-hidden="true">
-                <ellipse cx="24" cy="18" rx="7.5" ry="7.5" fill="#9FE0B7"/>
-                <circle cx="21" cy="16.5" r="1.6" fill="#fff"/>
-                <circle cx="27" cy="16.5" r="1.6" fill="#fff"/>
-                <circle cx="21" cy="16.8" r="0.9" fill="#1C222A"/>
-                <circle cx="27" cy="16.8" r="0.9" fill="#1C222A"/>
-                <ellipse cx="10" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
-                <ellipse cx="38" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
-                <ellipse cx="13" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
-                <ellipse cx="35" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
-                <ellipse cx="24" cy="25" rx="15" ry="13.5" fill="#3FA06A" stroke="#1F6E49" stroke-width="1.4"/>
-                <path d="M24 14 L33 21 L29.5 32 L18.5 32 L15 21 Z" fill="#6CC293" stroke="#1F6E49" stroke-width="1"/>
-              </svg>
-              <h1 class="brand-word">Choretl</h1>
-            </div>
-            <p class="sub">Who's this?</p>
-            <div class="profile-list" id="profile-list"></div>
-            <p id="profile-list-empty" class="hint-text hidden">No one's set up yet — add the first person below.</p>
-            <button class="link-btn" id="btn-show-add-person">+ Add a person</button>
+          <div class="segmented" id="household-mode-toggle">
+            <button type="button" class="seg-btn active" data-mode="join">Join household</button>
+            <button type="button" class="seg-btn" data-mode="create">Create household</button>
           </div>
 
-          <div id="auth-step-password" class="hidden">
-            <button class="back-btn" id="btn-back-to-pick">&larr; Back</button>
-            <h1 id="password-step-name">Hi</h1>
-            <p class="sub">Enter your password to continue.</p>
+          <!-- Join an existing household -->
+          <div id="household-step-join">
             <div class="field">
-              <label for="input-password">Password</label>
-              <input type="password" id="input-password" autocomplete="current-password" />
+              <label for="input-join-name">Household name</label>
+              <input type="text" id="input-join-name" maxlength="40" autocomplete="off" />
             </div>
-            <p class="error-text" id="password-error"></p>
-            <button class="primary-btn" id="btn-sign-in">Continue</button>
-            <button class="link-btn" id="btn-show-hint">Forgot it? Show hint</button>
-            <p class="hint-text hidden" id="hint-display"></p>
-            <button class="link-btn hidden" id="btn-send-reset">Email me a reset link</button>
+            <div class="field">
+              <label for="input-join-password">Password</label>
+              <div class="password-field">
+                <input type="password" id="input-join-password" autocomplete="current-password" />
+                <button type="button" class="eye-btn" data-target="input-join-password" aria-label="Show password"></button>
+              </div>
+            </div>
+            <p class="error-text" id="join-error"></p>
+            <button class="link-btn" id="btn-show-household-hint">Forgot it? Show hint</button>
+            <p class="hint-text hidden" id="household-hint-display"></p>
+            <button class="primary-btn" id="btn-join-household">Join household</button>
           </div>
 
-          <div id="auth-step-create" class="hidden">
-            <button class="back-btn" id="btn-back-to-pick-2">&larr; Back</button>
-            <h1>Add a person</h1>
-            <p class="sub">Set a name and password for this device (and any other device they'll use).</p>
+          <!-- Create a new household -->
+          <div id="household-step-create" class="hidden">
             <div class="field">
-              <label for="input-new-name">Name</label>
-              <input type="text" id="input-new-name" autocomplete="given-name" maxlength="30" />
+              <label for="input-create-name">Household name</label>
+              <input type="text" id="input-create-name" maxlength="40" autocomplete="off" />
+              <p class="hint-text">This is what you'll give your partner so they can join — pick something easy to say out loud.</p>
             </div>
             <div class="field">
-              <label for="input-new-password">Password</label>
-              <input type="password" id="input-new-password" autocomplete="new-password" />
-              <p class="hint-text">6 characters minimum &mdash; it doesn't need to be strong, just enough to keep the wrong person out of the wrong profile.</p>
+              <label for="input-create-password">Password</label>
+              <div class="password-field">
+                <input type="password" id="input-create-password" autocomplete="new-password" />
+                <button type="button" class="eye-btn" data-target="input-create-password" aria-label="Show password"></button>
+              </div>
+              <p class="hint-text">6 characters minimum &mdash; it doesn't need to be strong, just enough to keep it between the people you tell.</p>
             </div>
             <div class="field">
-              <label for="input-new-hint">Password hint (optional)</label>
-              <input type="text" id="input-new-hint" maxlength="60" />
+              <label for="input-create-hint">Password hint (optional)</label>
+              <input type="text" id="input-create-hint" maxlength="60" />
             </div>
-            <div class="field">
-              <label>Pick a colour for your name</label>
-              <div class="swatch-row" id="color-swatch-row"></div>
-            </div>
-            <div class="field">
-              <label for="input-new-email">Email (optional, for password reset)</label>
-              <input type="email" id="input-new-email" autocomplete="email" />
-              <p class="hint-text">Only used if you forget your password. Leave blank if you'd rather not — you just won't be able to reset it yourself later.</p>
-            </div>
-            <p class="error-text" id="create-error"></p>
-            <button class="primary-btn" id="btn-create-person">Create &amp; continue</button>
+            <p class="error-text" id="create-household-error"></p>
+            <button class="primary-btn" id="btn-create-household">Create household</button>
           </div>
-
         </div>
       </div>
 
-      <!-- Signed-in: account card -->
+      <!-- Household joined: pick / manage who's using it -->
+      <div id="home-pick-profile" class="hidden">
+        <div class="auth-card">
+          <h1 id="household-name-display"></h1>
+          <p class="sub">Who's this?</p>
+          <div class="profile-list" id="profile-list"></div>
+          <p id="profile-list-empty" class="hint-text hidden">No one's set up yet — add the first person below.</p>
+          <button class="link-btn" id="btn-show-add-profile">+ Add a person</button>
+          <button class="link-btn link-btn-muted" id="btn-leave-household-1">Leave this household</button>
+        </div>
+      </div>
+
+      <!-- Add / edit a person within the household -->
+      <div id="home-step-profile" class="hidden">
+        <div class="auth-card">
+          <button class="back-btn" id="btn-back-to-profiles">&larr; Back</button>
+          <h1 id="profile-step-title">Add a person</h1>
+          <div class="field">
+            <label for="input-profile-name">Name</label>
+            <input type="text" id="input-profile-name" maxlength="30" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>Colour</label>
+            <div class="swatch-row" id="color-swatch-row"></div>
+          </div>
+          <p class="error-text" id="profile-error"></p>
+          <div class="modal-actions" style="margin-top:6px;">
+            <button class="text-btn danger hidden" id="btn-delete-profile">Delete person</button>
+            <div style="flex:1"></div>
+            <button class="primary-btn" id="btn-save-profile" style="width:auto;">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active: a profile within the household is selected -->
       <div id="home-signed-in" class="hidden">
         <div class="auth-card">
-          <h1>Hi <span id="me-badge"></span></h1>
-          <p class="sub"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
-          <button class="icon-btn" id="btn-sign-out">Switch user</button>
+          <h1 id="household-name-display-2"></h1>
+          <p class="sub">Viewing as <strong id="me-badge"></strong> &middot; <span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
+          <button class="icon-btn" id="btn-switch-profile">Switch / manage people</button>
+          <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
         </div>
       </div>
 
@@ -165,8 +171,7 @@
         <h2>All tasks</h2>
         <select class="filter-select" id="alltasks-sort">
           <option value="alpha">A&ndash;Z</option>
-          <option value="recent">Most recently done</option>
-          <option value="stale">Least recently done</option>
+          <option value="dueDate">Soonest due</option>
         </select>
       </div>
       <input type="text" id="alltasks-search" class="search-input" placeholder="Search tasks by name&hellip;" />
@@ -281,6 +286,19 @@
     <div class="modal-actions">
       <div style="flex:1"></div>
       <button class="icon-btn" id="btn-cancel-assign">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MARK DONE MODAL ================= -->
+<div class="modal-backdrop hidden" id="done-modal-backdrop">
+  <div class="modal">
+    <h2>Who did this?</h2>
+    <div class="profile-list" id="done-options"></div>
+    <div class="modal-actions">
+      <div style="flex:1"></div>
+      <button class="icon-btn" id="btn-cancel-done">Cancel</button>
+      <button class="primary-btn" id="btn-confirm-done" style="width:auto;">Mark done</button>
     </div>
   </div>
 </div>

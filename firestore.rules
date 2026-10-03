@@ -2,24 +2,32 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Profile names must be readable by anyone, even before sign-in,
-    // so the "who's this?" picker can show names. Only the owning
-    // account can create or edit its own profile doc.
-    match /profiles/{uid} {
+    // There's no Firebase Auth account in this app anymore — a
+    // household is the whole access boundary, gated by its own
+    // password, which the app checks itself (it hashes the password
+    // you type and compares it to the hash stored on the household
+    // doc). That means these rules are wide open at the database
+    // level: anyone with your Firebase config could read/write
+    // through the API directly, not just through the app. That's the
+    // same trade-off the old per-person profiles already had (they
+    // were world-readable too) — fine for "keep two people's chores
+    // separate," not a substitute for real security.
+
+    match /households/{householdId} {
       allow read: if true;
-      allow create: if request.auth != null && request.auth.uid == uid;
-      allow update: if request.auth != null && request.auth.uid == uid;
+      allow create: if true;
+      allow update: if true;
       allow delete: if false;
-    }
 
-    // Tasks and the activity log are shared between whoever has an
-    // account in this app — not public, but not split by owner either.
-    match /tasks/{taskId} {
-      allow read, write: if request.auth != null;
-    }
-
-    match /log/{logId} {
-      allow read, write: if request.auth != null;
+      match /profiles/{profileId} {
+        allow read, write: if true;
+      }
+      match /tasks/{taskId} {
+        allow read, write: if true;
+      }
+      match /log/{logId} {
+        allow read, write: if true;
+      }
     }
   }
 }

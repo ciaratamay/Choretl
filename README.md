@@ -1,6 +1,6 @@
-# Household Tasks
+# Choretl
 
-A small installable web app for two people to share a household task board, with
+A small installable web app for a household to share a task board, with
 live sync via Firebase (last write wins — no merge conflicts to think about).
 
 ## What's in here
@@ -11,32 +11,27 @@ live sync via Firebase (last write wins — no merge conflicts to think about).
 
 ## One-time setup (you, not your partner)
 
-### 1. Enable Email/Password sign-in
-
-Firebase console → your project → **Build → Authentication → Sign-in method** →
-enable **Email/Password**. Nothing else needed there — the app never shows a
-normal login screen, it just uses this under the hood.
-
-### 2. Create a Firestore database
+### 1. Create a Firestore database
 
 Firebase console → **Build → Firestore Database → Create database**. Any region
 close to Ireland is fine (e.g. `europe-west1`). Start in **production mode** —
 the rules below replace the default deny-all.
 
-### 3. Paste in the security rules
+(There's no Authentication step this time — the app doesn't use Firebase Auth
+at all. A household's password is checked by the app itself, not Firebase.)
+
+### 2. Paste in the security rules
 
 Firestore → **Rules** tab → replace the contents with what's in `firestore.rules`
 in this folder → **Publish**.
 
-What these rules actually do: anyone can *read* the list of profile names (so the
-"who's this?" screen works before anyone's signed in), but only an account can
-create or edit its own profile. Tasks and the activity log are open to anyone
-who has an account in the app — i.e. you and your partner, since account
-creation happens inside the app itself, not via public sign-up anywhere else.
-That matches "no special security" without leaving Firestore wide open to
-random internet traffic.
+These rules are wide open — anyone with your Firebase config could read or
+write through the API directly, not just through the app. That's a deliberate
+trade-off: a household here is gated by its own password, checked client-side,
+not by Firebase-level security. Fine for "keep two people's chores separate,"
+not a substitute for real security if that ever matters to you.
 
-### 4. Get your config values and paste them in
+### 3. Get your config values and paste them in
 
 Firebase console → ⚙️ **Project settings** → scroll to **Your apps** → if you
 don't have a web app yet, click **Add app → Web** (the `</>` icon) and register
@@ -57,14 +52,13 @@ window.FIREBASE_CONFIG = {
 
 Replace each value with what Firebase gave you. These values aren't secret in
 the way an API key normally is — they just tell the browser which Firebase
-project to talk to; the security rules above are what actually gate access.
+project to talk to.
 
-### 5. Host it
+### 4. Host it
 
 Push this folder to a GitHub repo, then **Settings → Pages → Deploy from
 branch** → pick `main` and `/ (root)`. GitHub gives you a URL like
-`https://yourname.github.io/household-tasks/`. That's the link you'll both
-install from.
+`https://yourname.github.io/choretl/`. That's the link you'll both install from.
 
 (If you'd rather use Netlify or Vercel instead: drag-and-drop this folder onto
 their dashboard — either works, and nothing in the app cares which one you
@@ -79,14 +73,18 @@ Open the hosted URL in your phone's browser, then:
 
 ## First run
 
-The first person to open it picks "+ Add a person," sets a name, a password
-(6 characters minimum — Firebase's own floor, it doesn't need to be strong),
-an optional hint, and an optional email. Do this once each. After that,
-opening the app on any device shows both names — pick yours, enter your
-password, and it stays signed in on that device until you tap "Switch user."
+The first person opens the app and picks **Create household** — a household
+name (this is what you tell your partner, so pick something easy to say out
+loud), a password (6 characters minimum, doesn't need to be strong), and an
+optional hint. Everyone else picks **Join household** and enters that same
+name and password.
 
-If you skip the email field, that profile just can't self-serve a password
-reset later — you'd need to delete and recreate it in the Firebase console.
+Once you're in a household, you add a "person" for each of you — just a name
+and a colour, no password of your own. You can switch which person you're
+viewing as at any time without re-entering the household password, rename or
+recolour anyone, or delete a person (their tasks go back to unassigned rather
+than disappearing). The device stays in the household until you tap "Leave
+this household."
 
 ## How the sync actually works
 

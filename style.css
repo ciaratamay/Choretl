@@ -64,14 +64,17 @@ input, select { font-family: inherit; }
 }
 
 .brand-turtle {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   flex-shrink: 0;
+  display: block;
 }
 
 .brand-turtle.large {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
 }
 
 .brand-word {
@@ -214,6 +217,81 @@ input, select { font-family: inherit; }
   font-weight: 700;
 }
 
+.profile-pick-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.profile-pick-row .profile-pick { flex: 1; }
+
+.icon-edit-btn {
+  flex-shrink: 0;
+  width: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-edit-btn:hover { border-color: var(--blue-dark); color: var(--blue-dark); }
+
+/* ---------- Segmented control (create / join household) ---------- */
+
+.segmented {
+  display: flex;
+  background: var(--blue-tint);
+  border-radius: 9px;
+  padding: 3px;
+  margin-bottom: 20px;
+}
+
+.seg-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 9px 8px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  border-radius: 7px;
+}
+
+.seg-btn.active {
+  background: #fff;
+  color: var(--blue-dark);
+  box-shadow: 0 1px 3px rgba(22,58,100,0.18);
+}
+
+/* ---------- Password field with reveal toggle ---------- */
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 42px;
+}
+
+.eye-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--ink-soft);
+  padding: 0;
+}
+.eye-btn:hover { color: var(--blue-dark); background: var(--blue-tint); }
+
 .title-row {
   display: flex;
   align-items: center;
@@ -240,6 +318,7 @@ input, select { font-family: inherit; }
 }
 
 .link-btn {
+  display: block;
   background: none;
   border: none;
   color: var(--blue-dark);
@@ -247,6 +326,19 @@ input, select { font-family: inherit; }
   font-size: 0.92rem;
   padding: 6px 0;
   text-align: left;
+  width: 100%;
+}
+
+.auth-card .icon-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  text-align: center;
+}
+
+.link-btn-muted {
+  color: var(--ink-soft);
+  font-weight: 500;
 }
 
 .field { margin-bottom: 14px; }
@@ -369,13 +461,13 @@ input, select { font-family: inherit; }
 
 #pane-done .task-row { opacity: 0.75; }
 
-.task-check {
-  width: 20px;
-  height: 20px;
-  margin-top: 2px;
-  accent-color: var(--blue-dark);
-  flex-shrink: 0;
+.task-row.overdue-row {
+  opacity: 1;
+  border-color: #E3A98C;
+  background: #FFF8F3;
 }
+
+#pane-done .task-row.skipped-row { opacity: 0.85; }
 
 .task-main { flex: 1; min-width: 0; }
 
@@ -579,7 +671,7 @@ input, select { font-family: inherit; }
   border-color: var(--blue-dark);
 }
 
-/* ---------- Status badge (All tasks) ---------- */
+/* ---------- Status badge (overdue warning) ---------- */
 
 .status-badge {
   font-size: 0.72rem;
@@ -589,9 +681,32 @@ input, select { font-family: inherit; }
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
-.status-badge.due { background: #FBE6D4; color: #9A5A1D; }
-.status-badge.upcoming { background: var(--blue-tint); color: var(--blue-dark); }
-.status-badge.done { background: #E3E6EA; color: var(--ink-soft); }
+.status-badge.overdue { background: #F8D7CE; color: #A3401C; }
+
+/* ---------- Done / Skip action buttons ---------- */
+
+.done-btn, .skip-btn {
+  border: none;
+  border-radius: 20px;
+  padding: 5px 13px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.done-btn {
+  background: var(--blue-tint);
+  color: var(--blue-dark);
+}
+.done-btn:hover { background: var(--blue-dark); color: #fff; }
+
+.skip-btn {
+  background: #FCEAEA;
+  color: var(--danger);
+}
+.skip-btn:hover { background: var(--danger); color: #fff; }
+
+.skipped-label { color: var(--danger); font-weight: 700; }
+#pane-done .skipped-row .task-title { text-decoration-color: var(--danger); }
 
 /* ---------- Log rows ---------- */
 
