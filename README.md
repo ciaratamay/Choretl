@@ -194,25 +194,35 @@ one has:
   simply stays last, so adding another list in front won't shuffle it along;
 - **private to me**, which hides the list, its tasks and anything done on it
   from everyone else in the household. A work list stays out of your partner's
-  tabs, To-do, Log and Summary entirely;
-- **tasks here get assigned to someone** — turn it off for a list that's just
-  yours to work through, and the owner, assigning, take-turns and person
-  filter all disappear from it;
-- an **owner** for a shared list that does assign, so tasks added there start
-  on that person;
+  tabs, To-do, Log and Summary entirely. Privacy is also what decides whether
+  the list assigns anything: a private list is yours alone, so there's nobody
+  to hand a task to — the owner, assigning, take-turns and person filter all
+  disappear from it. It still shows under "Mine", since on a private list the
+  answer to "whose?" is always you;
+- **items here start as** — for a shared list, what a new task on it is set to
+  before anyone changes it: unassigned, yours, or someone else's. It's stored
+  as the actual person rather than "whoever's looking", so a shared list means
+  the same thing on both phones;
 - **include in the Home checklist, Log and Summary** — turn it off to keep a
   list to its own tab, so work tasks aren't counted alongside the housework;
 - **which ways to sort and filter it** — you pick the choices that tab even
   offers, not a default. Leave one sort and the control disappears entirely;
 - **tags**: use the household's categories, or give the list its own, created
-  in the list editor and used nowhere else. Moving a task between lists swaps
-  its tag choices over and drops any that don't belong where it landed.
+  in the list editor and used nowhere else.
+
+A task belongs to wherever it was added — adding one while you're on a list's
+tab puts it on that list, and there's no list picker in the task editor to
+second-guess it.
 
 Lists also appear in the filter sheet beside categories, so you can leave one
 out of any tab — handy for copying a list without your work items in it.
-Deleting a list asks what should happen to its tasks: move them back to the
-main lists, or delete them along with it. Either way your log keeps what was
-already done, still naming the list it came from.
+
+**Deleting a list** is on each row under Edit lists, and at the bottom of the
+list's own editor. It asks what should happen to its tasks: move them back to
+the main lists, or delete them along with it. Ones that move back land on
+whoever made the list, so nothing arrives ownerless — least of all from a
+private list, where tasks never had an owner to begin with. Either way your
+log keeps what was already done, still naming the list it came from.
 
 ## The activity log
 
@@ -239,7 +249,7 @@ of someone's way rather than out of their reach.
 
 ## Checking you're on the latest version
 
-The Home tab shows the running build at the bottom (`v20`, and so on). The app
+The Home tab shows the running build at the bottom (`v29`, and so on). The app
 fetches its own code fresh whenever you have a connection and only falls back
 to the stored copy offline, so a deploy shows up on the next load. If the
 number doesn't change after you've pushed, you're looking at a stale page —

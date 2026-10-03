@@ -1530,6 +1530,29 @@ body.modal-open { overflow: hidden; }
 }
 .list-admin-row:hover { border-color: var(--blue-dark); background: var(--blue-tint); }
 
+/* The row and its Delete sit side by side — a button can't live inside a
+   button, so the row is wrapped rather than extended. */
+.list-admin-item {
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  min-width: 0;
+}
+.list-admin-item .list-admin-row { min-width: 0; }
+
+.list-admin-del {
+  flex: 0 0 auto;
+  padding: 0 11px;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--danger);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.list-admin-del:hover { border-color: var(--danger); }
+
 .list-admin-icon {
   width: 30px;
   height: 30px;

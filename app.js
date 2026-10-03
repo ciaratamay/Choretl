@@ -817,7 +817,6 @@ function selectProfile(id, fallbackData) {
   populatePersonFilters();
   rebuildTabs();
   renderListAdmin();
-  populateListSelect();
   renderProfilePicker();
   showHomeStep("active");
   setTabsLocked(false);
@@ -953,7 +952,7 @@ function subscribeLists() {
     pruneListFilter();
     rebuildTabs();
     renderListAdmin();
-    populateListSelect();
+    renderTaskCategoryChips();
     renderAll();
   }, () => showToast("Having trouble syncing lists right now."));
 }
@@ -1020,13 +1019,13 @@ on("btn-back-from-lists", "click", () => showHomeStep("active"));
 on("btn-back-to-lists", "click", () => { renderListAdmin(); showHomeStep("lists"); });
 on("btn-show-add-list", "click", () => openListEditor(null));
 on("input-list-private", "change", syncListOwnerRow);
-on("input-list-assignment", "change", syncListOwnerRow);
 
 function syncListOwnerRow() {
-  // No owner to set on a private list (it's yours), nor on one where tasks
-  // aren't assigned to anyone at all. The person filter goes with it.
-  const assigns = $("input-list-assignment").checked;
-  $("wrap-list-owner").classList.toggle("hidden", $("input-list-private").checked || !assigns);
+  // Privacy is what decides whether a list assigns anything: a private list
+  // is yours alone, so there's nobody to hand a task to and no person filter
+  // worth offering. A shared one picks who its tasks start on.
+  const assigns = !$("input-list-private").checked;
+  $("wrap-list-owner").classList.toggle("hidden", !assigns);
   $("wrap-list-filters").classList.toggle("hidden", !assigns);
 }
 
@@ -1038,6 +1037,8 @@ function renderListAdmin() {
   $("list-admin-empty").classList.toggle("hidden", lists.length > 0);
 
   lists.forEach((l) => {
+    const outer = document.createElement("div");
+    outer.className = "list-admin-item";
     const row = document.createElement("button");
     row.type = "button";
     row.className = "list-admin-row";
@@ -1056,7 +1057,7 @@ function renderListAdmin() {
 
     const bits = [l.order ? `#${l.order}` : "last"];
     if (l.private) bits.push("private");
-    else if (l.owner && profilesCache[l.owner]) bits.push(profilesCache[l.owner].name);
+    else bits.push(listDefaultLabel(l));
     if (l.includeInSummaries === false) bits.push("own tab only");
     const meta = document.createElement("span");
     meta.className = "list-admin-meta";
@@ -1071,7 +1072,19 @@ function renderListAdmin() {
     row.appendChild(count);
 
     row.onclick = () => openListEditor(l.id);
-    wrap.appendChild(row);
+    outer.appendChild(row);
+
+    // Deleting is right here on the list, as well as inside the editor —
+    // it's the thing you most often come to this screen to do.
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "list-admin-del";
+    del.textContent = "Delete";
+    del.setAttribute("aria-label", `Delete ${l.name}`);
+    del.onclick = () => { editingListId = l.id; openDeleteListModal(l.id); };
+    outer.appendChild(del);
+
+    wrap.appendChild(outer);
   });
 }
 
@@ -1102,6 +1115,22 @@ function listFilterOptions(l) {
   return valid.length ? valid : ["anyone"];
 }
 
+// A shared list says who its tasks start on: nobody, or one of the people in
+// the household. A private list doesn't assign at all, so the question never
+// comes up there.
+function listDefaultAssignee(l) {
+  if (!l || l.private) return null;
+  const id = l.defaultAssignee;
+  return id && profilesCache[id] ? id : null;
+}
+
+function listDefaultLabel(l) {
+  const id = listDefaultAssignee(l);
+  if (!id) return "unassigned";
+  if (currentProfile && id === currentProfile.id) return "mine";
+  return profilesCache[id].name;
+}
+
 function listUsesOwnTags(l) {
   return !!(l && l.tagSource === "own");
 }
@@ -1128,7 +1157,6 @@ function openListEditor(id) {
   $("input-list-emoji").value = l ? (l.emoji || "") : "";
   $("input-list-private").checked = l ? !!l.private : false;
   $("input-list-summaries").checked = l ? l.includeInSummaries !== false : true;
-  $("input-list-assignment").checked = l ? l.assignment !== false : true;
   listDraft = {
     sortOptions: listSortOptions(l),
     filterOptions: listFilterOptions(l),
@@ -1147,7 +1175,7 @@ function openListEditor(id) {
   $("input-list-order").value = l && l.order ? l.order : max;
   $("list-order-hint").textContent = `1 puts it first after Home. Leave it at ${max} to keep it last, whatever else gets added.`;
 
-  populateOwnerLikeSelect($("input-list-owner"), l ? l.owner : null);
+  populateListDefaultSelect(l ? l.defaultAssignee : null);
   syncListOwnerRow();
   showHomeStep("list-edit");
 }
@@ -1249,12 +1277,18 @@ function addListTag() {
   renderListTagAdmin();
 }
 
-function populateOwnerLikeSelect(sel, current) {
-  sel.innerHTML = '<option value="">No owner</option>';
+// "Items here start as": unassigned, mine, or somebody else's. Stored as a
+// profile id so a shared list means the same thing on everyone's phone —
+// "mine" on the list you made doesn't become your partner's on theirs.
+function populateListDefaultSelect(current) {
+  const sel = $("input-list-default");
+  sel.innerHTML = '<option value="">Unassigned</option>';
   sortedProfileIds.forEach((id) => {
     const opt = document.createElement("option");
     opt.value = id;
-    opt.textContent = profilesCache[id].name;
+    opt.textContent = currentProfile && id === currentProfile.id
+      ? `Mine (${profilesCache[id].name})`
+      : profilesCache[id].name;
     sel.appendChild(opt);
   });
   sel.value = current && profilesCache[current] ? current : "";
@@ -1282,10 +1316,9 @@ on("btn-save-list", "click", async () => {
     })(),
     private: isPrivate,
     privateTo: isPrivate ? (currentProfile ? currentProfile.id : null) : null,
-    owner: (isPrivate || !$("input-list-assignment").checked)
-      ? null : ($("input-list-owner").value || null),
+    // A private list has no assignment at all, so there's nothing to default to.
+    defaultAssignee: isPrivate ? null : ($("input-list-default").value || null),
     includeInSummaries: $("input-list-summaries").checked,
-    assignment: $("input-list-assignment").checked,
     sortOptions: listDraft.sortOptions.slice(),
     filterOptions: listDraft.filterOptions.slice(),
     tagSource: listDraft.tagSource,
@@ -1329,7 +1362,11 @@ function openDeleteListModal(id) {
     ? `There ${n === 1 ? "is" : "are"} ${n} task${n === 1 ? "" : "s"} on this list. What should happen to ${them}?`
     : "The list is empty, so there's nothing else to decide.";
   $("dellist-choices").classList.toggle("hidden", n === 0);
-  $("dellist-keep-note").textContent = `${n === 1 ? "It moves" : "They move"} back to the main lists.`;
+  const heir = l && l.createdBy && profilesCache[l.createdBy]
+    ? profilesCache[l.createdBy].name : null;
+  $("dellist-keep-note").textContent = heir
+    ? `${n === 1 ? "It moves" : "They move"} back to the main lists, on ${heir}.`
+    : `${n === 1 ? "It moves" : "They move"} back to the main lists.`;
   $("dellist-delete-note").textContent = `${n === 1 ? "It goes" : "They go"} for good, along with the list.`;
 
   const note = $("dellist-history-note");
@@ -1370,7 +1407,16 @@ on("btn-confirm-dellist", "click", async () => {
     if (deleteListChoice === "delete") {
       await Promise.all(used.map((t) => deleteDoc(taskDoc(t.id))));
     } else {
-      await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), { listId: null })));
+      // Tasks that come back to the main lists land on whoever made the list
+      // they were on, so nothing arrives ownerless — least of all from a
+      // private list, where they never had an owner to begin with.
+      const l = listsCache[id];
+      const heir = l && l.createdBy && profilesCache[l.createdBy] ? l.createdBy : null;
+      await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), {
+        listId: null,
+        owner: t.takeTurns ? null : heir,
+        assignedTo: heir,
+      })));
     }
 
     // The log is left alone. What was done was done, and whoever could see it
@@ -1537,10 +1583,14 @@ function buildChip(label, selected, onToggle) {
 
 // ---------- the task modal's category chips ----------
 const taskModalCategories = new Set();
+// Which list the task being edited sits on. A task doesn't move between
+// lists — it belongs to wherever it was added — so this is read from the
+// task itself, or from the tab you're standing on when adding a new one.
+let taskModalListId = null;
 
 function renderTaskCategoryChips() {
   const wrap = $("input-task-categories");
-  const l = listById($("input-task-list") ? $("input-task-list").value : null);
+  const l = listById(taskModalListId);
   const own = listUsesOwnTags(l);
   const choices = tagsForList(l);
 
@@ -1563,22 +1613,6 @@ function renderTaskCategoryChips() {
     : "Tap to tag this task — it can carry as many as you like.";
   $("category-multi-hint").classList.toggle("hidden", none);
 }
-
-// Moving a task between lists can change which tags apply, and whether it's
-// assigned at all, so the form follows along.
-function syncTaskListFields() {
-  const l = listById($("input-task-list").value);
-  const assigns = !l || l.assignment !== false;
-  $("wrap-task-owner").classList.toggle("hidden", !assigns);
-  if (!assigns) $("input-task-owner").value = "";
-  // Tags are scoped to their source, so drop any that don't belong here.
-  const allowed = new Set(tagsForList(l).map(([id]) => id));
-  [...taskModalCategories].forEach((id) => { if (!allowed.has(id)) taskModalCategories.delete(id); });
-  renderTaskCategoryChips();
-  updateOwnerRow();
-}
-
-on("input-task-list", "change", syncTaskListFields);
 
 on("btn-edit-categories", "click", () => {
   $("category-error").textContent = "";
@@ -1801,22 +1835,6 @@ function centreActiveTab() {
 
 
 // ---------- selects ----------
-function populateListSelect() {
-  const sel = $("input-task-list");
-  if (!sel) return;
-  const keep = sel.value;
-  sel.innerHTML = '<option value="">Main lists</option>';
-  visibleLists().forEach((l) => {
-    const opt = document.createElement("option");
-    opt.value = l.id;
-    opt.textContent = l.emoji ? `${l.emoji} ${l.name}` : l.name;
-    sel.appendChild(opt);
-  });
-  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
-  // No point showing the picker at all until there's somewhere else to put it.
-  $("wrap-task-list").classList.toggle("hidden", visibleLists().length === 0);
-}
-
 function populateOwnerSelect() {
   const sel = $("input-task-owner");
   const keep = sel.value;
@@ -1872,10 +1890,11 @@ function populateFilterSelect(sel, kind) {
   sel.value = kind === "done" ? doneFilter : assignFilter;
 }
 
-// Whether a task's list bothers with assignment at all.
+// Whether a task's list bothers with assignment at all. A private list is
+// one person's own, so nothing on it gets handed to anybody.
 function taskAssigns(task) {
   const l = listById(task.listId);
-  return !l || l.assignment !== false;
+  return !l || !l.private;
 }
 
 // A custom list's tab only offers the filter and sort choices that list was
@@ -1884,7 +1903,7 @@ function populateListPaneFilter() {
   const l = listById(activeListId());
   const sel = $("filter-list");
   const keep = sel.value;
-  const assigns = !l || l.assignment !== false;
+  const assigns = !l || !l.private;
   const choices = assigns ? listFilterOptions(l) : [];
   const labels = Object.fromEntries(listFilterChoices());
 
@@ -2153,6 +2172,14 @@ function renderAll() {
 // "Mine" means the ones actually on me — nobody else's, and not the ones
 // sitting there unclaimed. Those have their own option so they're still easy
 // to find.
+// On a list that doesn't assign anything — a private one — the only person
+// who can see the task is the person looking at it, so for filtering purposes
+// it's theirs. Otherwise "Mine" would hide your own private list from you.
+function filterAssignee(task) {
+  if (taskAssigns(task)) return task.assignedTo;
+  return currentProfile ? currentProfile.id : null;
+}
+
 function matchesAssignFilter(value, assignedTo) {
   if (value === "anyone") return true;
   if (value === "unassigned") return !assignedTo;
@@ -2185,7 +2212,7 @@ function renderDue() {
   const sortVal = $("sort-due").value;
 
   let list_ = Object.values(tasksById).filter((t) => isOpenNow(t, now));
-  list_ = list_.filter((t) => matchesAssignFilter(assignFilter, t.assignedTo)
+  list_ = list_.filter((t) => matchesAssignFilter(assignFilter, filterAssignee(t))
     && matchesCategoryFilter(t) && passesListRules(t));
 
   if (sortVal === "alpha") {
@@ -2217,8 +2244,8 @@ function renderCustomList() {
   const notes = [];
   if (list.private) {
     notes.push("Private to you — nobody else in the household sees this list or its tasks.");
-  } else if (list.owner && profilesCache[list.owner]) {
-    notes.push(`Shared · ${profilesCache[list.owner].name}'s list.`);
+  } else {
+    notes.push(`Shared · new tasks here start ${listDefaultLabel(list)}.`);
   }
   if (list.includeInSummaries === false) {
     notes.push("Kept out of the Home checklist, the Log and the Summary.");
@@ -2228,7 +2255,7 @@ function renderCustomList() {
   note.classList.toggle("hidden", notes.length === 0);
 
   const now = new Date();
-  const assigns = list.assignment !== false;
+  const assigns = !list.private;
   const filterVal = $("filter-list").value;
   const sortVal = $("sort-list").value;
   let rows = Object.values(tasksById)
@@ -2574,7 +2601,7 @@ function renderChecklist() {
 
   const open = Object.values(tasksById)
     .filter((t) => isOpenNow(t, now))
-    .filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t)
+    .filter((t) => matchesAssignFilter(assignFilter, filterAssignee(t)) && matchesCategoryFilter(t)
       && taskCountsInSummaries(t) && matchesListFilter(t))
     .sort((a, b) => dueSortValue(a) - dueSortValue(b));
 
@@ -3278,9 +3305,8 @@ function populateDateOptions(type) {
 // the owner picker goes away and anything already set is cleared.
 // Whether the list this task sits on assigns tasks to people at all.
 function taskModalAssigns() {
-  const sel = $("input-task-list");
-  const l = listById(sel ? sel.value : null);
-  return !l || l.assignment !== false;
+  const l = listById(taskModalListId);
+  return !l || !l.private;
 }
 
 function updateOwnerRow() {
@@ -3316,18 +3342,18 @@ function openAddTaskModal() {
   $("input-monthday").value = 1;
   $("input-task-date").value = localDateStr(new Date());
   $("input-task-time").value = "";
-  populateListSelect();
+  // A new task belongs to whichever list's tab you're standing on, and
+  // starts out however that list says its items start.
   const standingIn = activeListId();
-  $("input-task-list").value = standingIn && listById(standingIn) ? standingIn : "";
-  const landing = listById($("input-task-list").value);
-  $("input-task-owner").value = landing && landing.owner && profilesCache[landing.owner]
-    ? landing.owner : "";
+  taskModalListId = standingIn && listById(standingIn) ? standingIn : null;
+  $("input-task-owner").value = listDefaultAssignee(listById(taskModalListId)) || "";
   $("input-task-taketurns").checked = false;
   $("input-task-estimate").value = "";
   $("task-advanced").open = false;
   // If you're filtering by a category, a new task starts tagged with it.
   taskModalCategories.clear();
-  categoryFilter.forEach((id) => { if (id !== "none") taskModalCategories.add(id); });
+  const seedTags = new Set(tagsForList(listById(taskModalListId)).map(([tid]) => tid));
+  categoryFilter.forEach((id) => { if (id !== "none" && seedTags.has(id)) taskModalCategories.add(id); });
   renderTaskCategoryChips();
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.add("hidden");
@@ -3357,14 +3383,16 @@ function openEditTaskModal(task) {
   $("input-task-time").value = task.hasTime
     ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
     : "";
-  populateListSelect();
-  $("input-task-list").value = task.listId && listById(task.listId) ? task.listId : "";
+  taskModalListId = task.listId && listById(task.listId) ? task.listId : null;
   $("input-task-owner").value = task.owner || "";
   $("input-task-taketurns").checked = !!task.takeTurns;
   $("input-task-estimate").value = task.estimateMins == null ? "" : task.estimateMins;
   $("task-advanced").open = task.estimateMins != null;
   taskModalCategories.clear();
-  (task.categoryIds || []).forEach((id) => { if (categoriesCache[id]) taskModalCategories.add(id); });
+  // Which tags are real here depends on the list — its own, or the
+  // household's categories — so check against that rather than one or other.
+  const allowedTags = new Set(tagsForList(listById(taskModalListId)).map(([tid]) => tid));
+  (task.categoryIds || []).forEach((id) => { if (allowedTags.has(id)) taskModalCategories.add(id); });
   renderTaskCategoryChips();
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.remove("hidden");
@@ -3431,7 +3459,7 @@ async function saveTask() {
   // Taking turns and having an owner are mutually exclusive.
   const owner = takeTurns ? null : ($("input-task-owner").value || null);
   const categoryIds = [...taskModalCategories];
-  const listId = $("input-task-list").value || null;
+  const listId = taskModalListId;
   const estimateRaw = $("input-task-estimate").value.trim();
   const estimateMins = estimateRaw === "" ? null : Math.max(0, parseInt(estimateRaw, 10) || 0);
 

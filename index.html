@@ -217,18 +217,10 @@
             <p class="hint-text">Only you see this list, its tasks, and anything done on it. Leave it off to share it with the household.</p>
           </div>
 
-          <div class="field">
-            <label class="checkbox-field">
-              <input type="checkbox" id="input-list-assignment" checked />
-              <span>Tasks here get assigned to someone</span>
-            </label>
-            <p class="hint-text">Turn this off for a list that's just yours to work through &mdash; no owner, no assigning, no filtering by person.</p>
-          </div>
-
           <div class="field" id="wrap-list-owner">
-            <label for="input-list-owner">Owner</label>
-            <select id="input-list-owner"><option value="">No owner</option></select>
-            <p class="hint-text">Tasks added to this list start on them.</p>
+            <label for="input-list-default">Items here start as</label>
+            <select id="input-list-default"></select>
+            <p class="hint-text">What a new task on this list is set to before anyone changes it. A private list skips assignment altogether &mdash; it's all yours.</p>
           </div>
 
           <div class="field">
@@ -506,11 +498,6 @@
         <option value="">No owner</option>
       </select>
       <p class="hint-text">Whose task this is by default. Each time it comes around it starts on them &mdash; anyone can still take it in the To-do tab.</p>
-    </div>
-
-    <div class="field hidden" id="wrap-task-list">
-      <label for="input-task-list">List</label>
-      <select id="input-task-list"><option value="">Main lists</option></select>
     </div>
 
     <div class="field">
