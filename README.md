@@ -170,9 +170,15 @@ appear once you pick one of the other two:
 
 Give a task a time and it goes late an hour after that time rather than at the
 end of the day. A task that **repeats** is still a one-off by default — tick
-"This repeats" for the scheduling options, and where the schedule already pins
-the day (every week on a Saturday, monthly on the 12th) the date field
-disappears, since the weekday or date is what decides it.
+"This repeats" for the scheduling options. Where the schedule pins the day
+(every week on a Wednesday, monthly on the 12th), you still choose which one
+it starts on, but the date box becomes a list of only the dates that fit — the
+next dozen Wednesdays, say — so you can't set a Wednesday task to start on a
+Tuesday.
+
+In **All tasks**, anything not currently live tells you when it's next up:
+"Not yet · Due Oct 7" for something waiting for its day, or "Back tomorrow"
+for a due-by task you've just done.
 
 Tasks made before this existed are treated as "due by", so nothing vanishes
 off your list.

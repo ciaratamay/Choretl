@@ -1,6 +1,6 @@
 // Bump this on every deploy. It's what retires the previous cache, and it's
 // shown on the Home tab so you can tell at a glance which build is running.
-const APP_VERSION = "v20";
+const APP_VERSION = "v21";
 const CACHE_NAME = `choretl-shell-${APP_VERSION}`;
 const SHELL_FILES = [
   "./",

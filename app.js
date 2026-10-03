@@ -105,10 +105,37 @@ function nextMonthDayDate(day, from = new Date()) {
   return d < today ? addMonthsKeepDay(d, 1, day) : d;
 }
 
-// Frequencies where the day is already pinned by the weekday or date you
-// picked, so asking for a start date on top of it would just be confusing.
+// Frequencies where the day of the week (or of the month) is already pinned,
+// so a free date field would let you pick a day the schedule can't fall on.
+// These get a list of the dates that actually match instead.
 function freqImpliesDate(type) {
   return type === "weekly" || type === "custom-weeks" || type === "monthly";
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function fmtShortDay(date) {
+  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
+// The dates a weekday- or monthday-anchored schedule can actually start on:
+// the next dozen Wednesdays, or the next dozen 12ths.
+function matchingDates(type, freq, count = 12) {
+  const out = [];
+  if (type === "monthly") {
+    let d = nextMonthDayDate(freq.monthDay);
+    for (let i = 0; i < count; i++) {
+      out.push(d);
+      d = addMonthsKeepDay(d, 1, freq.monthDay);
+    }
+  } else {
+    let d = nextWeekdayDate(freq.weekday);
+    for (let i = 0; i < count; i++) {
+      out.push(d);
+      d = addDays(d, 7);
+    }
+  }
+  return out;
 }
 
 function freqSummary(freq) {
@@ -232,6 +259,21 @@ function taskStatus(task, now) {
 // warn in different colours to match.
 function isSoftOverdue(task) {
   return task.dueMode === "by";
+}
+
+// When a task that isn't currently live will be back on the list. That's its
+// appear moment, not its due date — a "due by" task reopens the day after it
+// was done, which can be a fortnight before the date it's due by.
+function nextAppearanceText(task) {
+  if (task.freq.type === "once" && task.lastCompletion) return null;
+  const { appearAt } = taskWindow(task);
+  const when = appearAt || dueDateOf(task);
+  if (!when) return null;
+  const today = startOfDay(new Date());
+  const day = startOfDay(when);
+  if (day.getTime() === today.getTime()) return "Back today";
+  if (day.getTime() === addDays(today, 1).getTime()) return "Back tomorrow";
+  return `Back ${fmtShortDay(when)}`;
 }
 
 // How a task's timing reads in a list.
@@ -1588,10 +1630,11 @@ function buildInstancePanel(task, now) {
     who.appendChild(name);
     wrap.appendChild(who);
 
-    if (task.freq.type !== "once" && dueDateOf(task)) {
+    const back = nextAppearanceText(task);
+    if (back) {
       const next = document.createElement("span");
       next.className = "inst-next";
-      next.textContent = `Back ${fmtDue(dueDateOf(task), task.hasTime)}`;
+      next.textContent = back;
       wrap.appendChild(next);
     }
   }
@@ -2338,9 +2381,62 @@ function updateFreqRows() {
   $("row-weekday").classList.toggle("hidden", !(type === "weekly" || type === "custom-weeks"));
   $("wrap-interval-weeks").classList.toggle("hidden", type !== "custom-weeks");
   $("row-monthday").classList.toggle("hidden", type !== "monthly");
-  // "Every week on Saturday" already says which day — no date field needed.
-  $("wrap-task-date").classList.toggle("hidden", freqImpliesDate(type));
+
+  // "Every week on Saturday" still needs a start date, but only Saturdays are
+  // valid — so that case gets a list of matching dates rather than a free
+  // date field that would happily accept a Tuesday.
+  const implied = freqImpliesDate(type);
+  $("wrap-task-date").classList.toggle("hidden", !dated || implied);
+  $("wrap-task-dateopts").classList.toggle("hidden", !dated || !implied);
+  if (dated && implied) populateDateOptions(type);
   updateOwnerRow();
+}
+
+// Listens to the weekday / day-of-month / interval inputs so the date list
+// re-reads whenever the thing it's derived from changes.
+["input-weekday", "input-monthday", "input-interval-weeks"].forEach((id) =>
+  on(id, "change", () => updateFreqRows()));
+
+function populateDateOptions(type) {
+  const sel = $("input-task-dateopts");
+  const keep = sel.value;
+  const freq = {
+    weekday: parseInt($("input-weekday").value, 10),
+    monthDay: Math.min(28, Math.max(1, parseInt($("input-monthday").value, 10) || 1)),
+  };
+  const dates = matchingDates(type, freq);
+
+  // When editing something already scheduled, its own date belongs in the
+  // list even if it's in the past — otherwise saving would quietly shunt an
+  // overdue task forward.
+  const existing = editingTaskId ? dueDateOf(tasksById[editingTaskId]) : null;
+  if (existing) {
+    const matches = type === "monthly"
+      ? existing.getDate() === freq.monthDay
+      : existing.getDay() === freq.weekday;
+    if (matches && !dates.some((d) => localDateStr(d) === localDateStr(existing))) {
+      dates.unshift(existing);
+    }
+  }
+
+  const todayStr = localDateStr(new Date());
+  sel.innerHTML = "";
+  dates.forEach((d) => {
+    const opt = document.createElement("option");
+    opt.value = localDateStr(d);
+    opt.textContent = fmtShortDay(d) + (opt.value === todayStr ? " · today" : "");
+    sel.appendChild(opt);
+  });
+
+  const wanted = [keep, existing ? localDateStr(existing) : null]
+    .find((v) => v && [...sel.options].some((o) => o.value === v));
+  sel.value = wanted || sel.options[0].value;
+
+  $("label-task-dateopts").textContent =
+    $("input-task-duemode").value === "by" ? "Due by" : "Due on";
+  $("dateopts-hint").textContent = type === "monthly"
+    ? `Only the ${freq.monthDay}${ordinal(freq.monthDay)} of the month can be picked.`
+    : `Only ${WEEKDAY_NAMES[freq.weekday]}s can be picked.`;
 }
 
 // A task that takes turns belongs to whoever's next, not to an owner, so
@@ -2362,6 +2458,8 @@ function openAddTaskModal() {
   $("input-task-title").value = "";
   // No date at all is the default — you opt into scheduling, not out of it.
   $("input-task-duemode").value = "whenever";
+  // Clear the date list so a leftover selection can't outrank this task's own.
+  $("input-task-dateopts").innerHTML = "";
   $("input-task-repeats").checked = false;
   $("input-task-freq").value = "daily";
   $("input-interval-n").value = 2;
@@ -2392,6 +2490,7 @@ function openEditTaskModal(task) {
   $("task-modal-sub").classList.toggle("hidden", activeTab === "alltasks");
   $("input-task-title").value = task.title;
   $("input-task-duemode").value = task.dueMode || "whenever";
+  $("input-task-dateopts").innerHTML = "";
   const repeats = task.freq.type !== "once";
   $("input-task-repeats").checked = repeats;
   $("input-task-freq").value = repeats ? task.freq.type : "daily";
@@ -2450,7 +2549,10 @@ async function saveTask() {
 
   if (dueMode !== "whenever") {
     if (freqImpliesDate(type)) {
-      if (sameFreq && dueDateOf(existing)) dueDate = dueDateOf(existing);
+      // Whichever matching date was picked from the list.
+      const picked = $("input-task-dateopts").value;
+      if (picked) dueDate = new Date(`${picked}T00:00`);
+      else if (sameFreq && dueDateOf(existing)) dueDate = dueDateOf(existing);
       else if (type === "monthly") dueDate = nextMonthDayDate(freq.monthDay);
       else dueDate = nextWeekdayDate(freq.weekday);
     } else {
