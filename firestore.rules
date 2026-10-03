@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Profile names must be readable by anyone, even before sign-in,
+    // so the "who's this?" picker can show names. Only the owning
+    // account can create or edit its own profile doc.
+    match /profiles/{uid} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // Tasks and the activity log are shared between whoever has an
+    // account in this app — not public, but not split by owner either.
+    match /tasks/{taskId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /log/{logId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

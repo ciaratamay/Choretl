@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Choretl</title>
+<meta name="theme-color" content="#1E4E85" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <header class="tabbar">
+    <div class="brand">
+      <svg class="brand-turtle" viewBox="0 0 48 48" aria-hidden="true">
+        <ellipse cx="24" cy="18" rx="7.5" ry="7.5" fill="#9FE0B7"/>
+        <circle cx="21" cy="16.5" r="1.6" fill="#fff"/>
+        <circle cx="27" cy="16.5" r="1.6" fill="#fff"/>
+        <circle cx="21" cy="16.8" r="0.9" fill="#1C222A"/>
+        <circle cx="27" cy="16.8" r="0.9" fill="#1C222A"/>
+        <ellipse cx="10" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
+        <ellipse cx="38" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
+        <ellipse cx="13" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
+        <ellipse cx="35" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
+        <ellipse cx="24" cy="25" rx="15" ry="13.5" fill="#3FA06A" stroke="#1F6E49" stroke-width="1.4"/>
+        <path d="M24 14 L33 21 L29.5 32 L18.5 32 L15 21 Z" fill="#6CC293" stroke="#1F6E49" stroke-width="1"/>
+      </svg>
+      <span class="brand-word">Choretl</span>
+    </div>
+    <button class="tab-btn active" data-tab="home">Home</button>
+    <button class="tab-btn" data-tab="due" disabled>To-do</button>
+    <button class="tab-btn" data-tab="done" disabled>Done</button>
+    <button class="tab-btn" data-tab="alltasks" disabled>All tasks</button>
+    <button class="tab-btn" data-tab="log" disabled>Log</button>
+  </header>
+
+  <main class="content">
+
+    <!-- ================= HOME PANE ================= -->
+    <section id="pane-home" class="pane active">
+
+      <!-- Signed-out: profile picker / password / create -->
+      <div id="home-signed-out">
+        <div class="auth-card">
+
+          <div id="auth-step-pick">
+            <div class="auth-logo">
+              <svg class="brand-turtle large" viewBox="0 0 48 48" aria-hidden="true">
+                <ellipse cx="24" cy="18" rx="7.5" ry="7.5" fill="#9FE0B7"/>
+                <circle cx="21" cy="16.5" r="1.6" fill="#fff"/>
+                <circle cx="27" cy="16.5" r="1.6" fill="#fff"/>
+                <circle cx="21" cy="16.8" r="0.9" fill="#1C222A"/>
+                <circle cx="27" cy="16.8" r="0.9" fill="#1C222A"/>
+                <ellipse cx="10" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
+                <ellipse cx="38" cy="29" rx="4.5" ry="3.6" fill="#9FE0B7"/>
+                <ellipse cx="13" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
+                <ellipse cx="35" cy="23" rx="4" ry="3.2" fill="#9FE0B7"/>
+                <ellipse cx="24" cy="25" rx="15" ry="13.5" fill="#3FA06A" stroke="#1F6E49" stroke-width="1.4"/>
+                <path d="M24 14 L33 21 L29.5 32 L18.5 32 L15 21 Z" fill="#6CC293" stroke="#1F6E49" stroke-width="1"/>
+              </svg>
+              <h1 class="brand-word">Choretl</h1>
+            </div>
+            <p class="sub">Who's this?</p>
+            <div class="profile-list" id="profile-list"></div>
+            <p id="profile-list-empty" class="hint-text hidden">No one's set up yet — add the first person below.</p>
+            <button class="link-btn" id="btn-show-add-person">+ Add a person</button>
+          </div>
+
+          <div id="auth-step-password" class="hidden">
+            <button class="back-btn" id="btn-back-to-pick">&larr; Back</button>
+            <h1 id="password-step-name">Hi</h1>
+            <p class="sub">Enter your password to continue.</p>
+            <div class="field">
+              <label for="input-password">Password</label>
+              <input type="password" id="input-password" autocomplete="current-password" />
+            </div>
+            <p class="error-text" id="password-error"></p>
+            <button class="primary-btn" id="btn-sign-in">Continue</button>
+            <button class="link-btn" id="btn-show-hint">Forgot it? Show hint</button>
+            <p class="hint-text hidden" id="hint-display"></p>
+            <button class="link-btn hidden" id="btn-send-reset">Email me a reset link</button>
+          </div>
+
+          <div id="auth-step-create" class="hidden">
+            <button class="back-btn" id="btn-back-to-pick-2">&larr; Back</button>
+            <h1>Add a person</h1>
+            <p class="sub">Set a name and password for this device (and any other device they'll use).</p>
+            <div class="field">
+              <label for="input-new-name">Name</label>
+              <input type="text" id="input-new-name" autocomplete="given-name" maxlength="30" />
+            </div>
+            <div class="field">
+              <label for="input-new-password">Password</label>
+              <input type="password" id="input-new-password" autocomplete="new-password" />
+              <p class="hint-text">6 characters minimum &mdash; it doesn't need to be strong, just enough to keep the wrong person out of the wrong profile.</p>
+            </div>
+            <div class="field">
+              <label for="input-new-hint">Password hint (optional)</label>
+              <input type="text" id="input-new-hint" maxlength="60" />
+            </div>
+            <div class="field">
+              <label>Pick a colour for your name</label>
+              <div class="swatch-row" id="color-swatch-row"></div>
+            </div>
+            <div class="field">
+              <label for="input-new-email">Email (optional, for password reset)</label>
+              <input type="email" id="input-new-email" autocomplete="email" />
+              <p class="hint-text">Only used if you forget your password. Leave blank if you'd rather not — you just won't be able to reset it yourself later.</p>
+            </div>
+            <p class="error-text" id="create-error"></p>
+            <button class="primary-btn" id="btn-create-person">Create &amp; continue</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Signed-in: account card -->
+      <div id="home-signed-in" class="hidden">
+        <div class="auth-card">
+          <h1>Hi <span id="me-badge"></span></h1>
+          <p class="sub"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
+          <button class="icon-btn" id="btn-sign-out">Switch user</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= TO-DO PANE (due + upcoming, merged) ================= -->
+    <section id="pane-due" class="pane">
+      <div class="pane-head">
+        <h2>To-do</h2>
+        <div class="pane-head-controls">
+          <select class="filter-select" id="filter-due"></select>
+          <select class="filter-select" id="sort-due">
+            <option value="dueDate">Soonest due</option>
+            <option value="alpha">A&ndash;Z</option>
+            <option value="priority">Priority</option>
+          </select>
+        </div>
+      </div>
+      <ul class="task-list" id="list-due"></ul>
+      <p class="empty-note hidden" id="due-empty">Nothing on the list. Nicely done.</p>
+    </section>
+
+    <!-- ================= DONE PANE ================= -->
+    <section id="pane-done" class="pane">
+      <div class="pane-head">
+        <h2>Done</h2>
+        <select class="filter-select" id="filter-done"></select>
+      </div>
+      <ul class="task-list" id="list-done"></ul>
+      <p class="empty-note hidden" id="done-empty">Nothing checked off yet.</p>
+    </section>
+
+    <!-- ================= ALL TASKS PANE ================= -->
+    <section id="pane-alltasks" class="pane">
+      <div class="pane-head">
+        <h2>All tasks</h2>
+        <select class="filter-select" id="alltasks-sort">
+          <option value="alpha">A&ndash;Z</option>
+          <option value="recent">Most recently done</option>
+          <option value="stale">Least recently done</option>
+        </select>
+      </div>
+      <input type="text" id="alltasks-search" class="search-input" placeholder="Search tasks by name&hellip;" />
+      <ul class="task-list" id="list-alltasks"></ul>
+      <p class="empty-note hidden" id="alltasks-empty">No tasks match.</p>
+    </section>
+
+    <!-- ================= LOG PANE ================= -->
+    <section id="pane-log" class="pane">
+      <div class="pane-head">
+        <h2>Activity log</h2>
+      </div>
+      <ul class="task-list" id="list-log"></ul>
+      <p class="empty-note hidden" id="log-empty">Nothing logged yet.</p>
+    </section>
+
+  </main>
+
+  <button class="fab hidden" id="btn-add-task">+ Add task</button>
+
+</div>
+
+<!-- ================= TASK MODAL ================= -->
+<div class="modal-backdrop hidden" id="task-modal-backdrop">
+  <div class="modal">
+    <h2 id="task-modal-title">Add task</h2>
+
+    <div class="field">
+      <label for="input-task-title">Task</label>
+      <input type="text" id="input-task-title" maxlength="80" />
+    </div>
+
+    <div class="field">
+      <label for="input-task-freq">Repeats</label>
+      <select id="input-task-freq">
+        <option value="once">One-off (no repeat)</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="custom-days">Every N days</option>
+        <option value="custom-weeks">Every N weeks on a day</option>
+        <option value="monthly">Monthly on a date</option>
+      </select>
+    </div>
+
+    <div class="modal-row hidden" id="row-interval-days">
+      <div class="field">
+        <label for="input-interval-n">Every how many days</label>
+        <input type="number" id="input-interval-n" min="1" value="2" />
+      </div>
+    </div>
+
+    <div class="modal-row hidden" id="row-weekday">
+      <div class="field">
+        <label for="input-weekday">Day of week</label>
+        <select id="input-weekday">
+          <option value="0">Sunday</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+          <option value="6">Saturday</option>
+        </select>
+      </div>
+      <div class="field hidden" id="wrap-interval-weeks">
+        <label for="input-interval-weeks">Every how many weeks</label>
+        <input type="number" id="input-interval-weeks" min="1" value="2" />
+      </div>
+    </div>
+
+    <div class="modal-row hidden" id="row-monthday">
+      <div class="field">
+        <label for="input-monthday">Day of month (1&ndash;28)</label>
+        <input type="number" id="input-monthday" min="1" max="28" value="1" />
+      </div>
+    </div>
+
+    <div class="modal-row">
+      <div class="field">
+        <label for="input-task-date">First/next due date</label>
+        <input type="date" id="input-task-date" />
+      </div>
+      <div class="field">
+        <label for="input-task-time">Time (optional)</label>
+        <input type="time" id="input-task-time" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="input-task-assignee">Assigned to</label>
+      <select id="input-task-assignee">
+        <option value="">Unassigned</option>
+      </select>
+    </div>
+
+    <p class="error-text" id="task-modal-error"></p>
+
+    <div class="modal-actions">
+      <button class="text-btn danger hidden" id="btn-delete-task">Delete task</button>
+      <div style="flex:1"></div>
+      <button class="icon-btn" id="btn-cancel-task">Cancel</button>
+      <button class="primary-btn" id="btn-save-task">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ASSIGN MODAL ================= -->
+<div class="modal-backdrop hidden" id="assign-modal-backdrop">
+  <div class="modal">
+    <h2>Assign to</h2>
+    <div class="profile-list" id="assign-options"></div>
+    <div class="modal-actions">
+      <div style="flex:1"></div>
+      <button class="icon-btn" id="btn-cancel-assign">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Firebase config — fill in with your project's values (Firebase console -> Project settings -> General -> Your apps -> SDK setup and configuration) -->
+<script>
+  window.FIREBASE_CONFIG = {
+    apiKey: "AIzaSyALWfpXP7mGuxJujHC0ist0Br45IQZvrLA",
+    authDomain: "choretl.firebaseapp.com",
+    projectId: "choretl",
+    storageBucket: "choretl.firebasestorage.app",
+    messagingSenderId: "341836389777",
+    appId: "1:341836389777:web:79aad6aae03bfce5c5ce30"
+  };
+</script>
+
+<script type="module" src="app.js"></script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
+
+</body>
+</html>
