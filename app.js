@@ -322,6 +322,8 @@ let sortedProfileIds = [];
 let tasksById = {};
 let categoriesCache = {};        // categoryId -> {name}
 let sortedCategoryIds = [];
+let listsCache = {};             // listId -> list doc
+let unsubLists = null;
 let logRows = [];                // newest-first, kept so Summary can re-filter
 let unsubProfiles = null;
 let unsubTasks = null;
@@ -386,6 +388,8 @@ const logCol = () => collection(db, "households", householdId, "log");
 const logDoc = (id) => doc(db, "households", householdId, "log", id);
 const categoriesCol = () => collection(db, "households", householdId, "categories");
 const categoryDoc = (id) => doc(db, "households", householdId, "categories", id);
+const listsCol = () => collection(db, "households", householdId, "lists");
+const listDoc = (id) => doc(db, "households", householdId, "lists", id);
 
 // ---------- generic UI wiring ----------
 function wireEyeButtons() {
@@ -422,6 +426,8 @@ function showHomeStep(step) {
   $("home-step-profile").classList.toggle("hidden", step !== "profile-edit");
   $("home-signed-in").classList.toggle("hidden", step !== "active");
   $("home-categories").classList.toggle("hidden", step !== "categories");
+  $("home-lists").classList.toggle("hidden", step !== "lists");
+  $("home-list-edit").classList.toggle("hidden", step !== "list-edit");
   // Only on a real step change — a background sync re-asserting the same
   // step shouldn't yank the page out from under anyone mid-scroll.
   if (step !== currentHomeStep) {
@@ -534,6 +540,7 @@ function enterHousehold(id, name) {
   pendingAutoSelectProfileId = localStorage.getItem(LS_PROFILE_ID);
   subscribeProfiles();
   subscribeCategories();
+  subscribeLists();
   subscribeTasks();
   subscribeLog();
   startRollover();
@@ -543,7 +550,8 @@ function enterHousehold(id, name) {
 // is currently active — their name instead of "Home", their colour instead
 // of the default blue.
 function syncIdentityUI() {
-  $("tab-home-label").textContent = currentProfile ? currentProfile.name : "Home";
+  const homeLabel = $("tab-home-label");
+  if (homeLabel) homeLabel.textContent = currentProfile ? currentProfile.name : "Home";
   if (currentProfile) {
     document.documentElement.style.setProperty("--active-tab-color", colorForProfile(currentProfile.id));
   } else {
@@ -567,7 +575,7 @@ function buildInviteText(password) {
   return [
     `Join my household task tracker at ${appUrl()}`,
     "",
-    "* To install on Android, open the browser menu (top right) and choose “Install app”. On iPhone, tap Share then “Add to Home Screen”.",
+    "* Open that link, then use the “Install on this device” button on the Home tab to add it to your phone. If it isn't there: on Android open the browser menu (top right) and choose “Install app”; on iPhone tap Share, then “Add to Home Screen”.",
     `* Join my household called “${householdName || ""}”`,
     `* Enter password - ${password || "(I'll send this separately)"}`,
   ].join("\n");
@@ -691,14 +699,17 @@ function teardown() {
   if (unsubTasks) unsubTasks();
   if (unsubLog) unsubLog();
   if (unsubCategories) unsubCategories();
+  if (unsubLists) unsubLists();
   if (rolloverTimer) clearInterval(rolloverTimer);
-  unsubProfiles = unsubTasks = unsubLog = unsubCategories = null;
+  unsubProfiles = unsubTasks = unsubLog = unsubCategories = unsubLists = null;
   rolloverTimer = null;
   tasksById = {};
   profilesCache = {};
   sortedProfileIds = [];
   categoriesCache = {};
   sortedCategoryIds = [];
+  listsCache = {};
+  listFilter.clear();
   logRows = [];
 }
 
@@ -789,6 +800,9 @@ function selectProfile(id, fallbackData) {
   syncIdentityUI();
   populateOwnerSelect();
   populatePersonFilters();
+  rebuildTabs();
+  renderListAdmin();
+  populateListSelect();
   renderProfilePicker();
   showHomeStep("active");
   setTabsLocked(false);
@@ -909,6 +923,303 @@ on("btn-delete-profile", "click", async () => {
   }
 });
 
+// ---------- custom lists ----------
+// A list is a tab of its own holding its own tasks. A private one belongs to
+// the person who made it and is hidden from everyone else in the household —
+// their tabs, their To-do, their logs and summaries. That hiding is done by
+// the app, not by the database, which is wide open either way (see the
+// README); it keeps a work list out of your partner's way, it doesn't keep a
+// determined person out of your data.
+function subscribeLists() {
+  if (unsubLists) unsubLists();
+  unsubLists = onSnapshot(listsCol(), (snap) => {
+    listsCache = {};
+    snap.forEach((d) => { listsCache[d.id] = { id: d.id, ...d.data() }; });
+    pruneListFilter();
+    rebuildTabs();
+    renderListAdmin();
+    populateListSelect();
+    renderAll();
+  }, () => showToast("Having trouble syncing lists right now."));
+}
+
+function listById(id) {
+  return id ? listsCache[id] : null;
+}
+
+// Lists this profile is allowed to see, in tab order.
+function visibleLists() {
+  return Object.values(listsCache)
+    .filter((l) => !l.private || (currentProfile && l.privateTo === currentProfile.id))
+    .sort((a, b) => (a.order || Infinity) - (b.order || Infinity)
+      || (a.name || "").localeCompare(b.name || ""));
+}
+
+function canSeeList(id) {
+  const l = listById(id);
+  if (!l) return true;              // no list, or one that's been deleted
+  return !l.private || (currentProfile && l.privateTo === currentProfile.id);
+}
+
+// Can this task be shown to whoever is viewing at all?
+function taskVisible(task) {
+  return canSeeList(task.listId);
+}
+
+// Does it count towards the Home checklist, the Log and the Summary?
+function taskCountsInSummaries(task) {
+  if (!taskVisible(task)) return false;
+  const l = listById(task.listId);
+  return !l || l.includeInSummaries !== false;
+}
+
+// The list filter works like the category one: a set, empty meaning "all".
+const listFilter = new Set();
+
+function pruneListFilter() {
+  [...listFilter].forEach((id) => {
+    if (id !== "main" && !canSeeList(id)) listFilter.delete(id);
+  });
+}
+
+function matchesListFilter(task) {
+  if (listFilter.size === 0) return true;
+  if (!task.listId) return listFilter.has("main");
+  return listFilter.has(task.listId);
+}
+
+// Everything a shared view shows has to clear both: visible to me, and not
+// filtered out.
+function passesListRules(task) {
+  return taskVisible(task) && matchesListFilter(task);
+}
+
+// ---------- managing custom lists ----------
+let editingListId = null;
+
+on("btn-edit-lists", "click", () => {
+  renderListAdmin();
+  showHomeStep("lists");
+});
+on("btn-back-from-lists", "click", () => showHomeStep("active"));
+on("btn-back-to-lists", "click", () => { renderListAdmin(); showHomeStep("lists"); });
+on("btn-show-add-list", "click", () => openListEditor(null));
+on("input-list-private", "change", syncListOwnerRow);
+
+function syncListOwnerRow() {
+  // A private list is yours by definition — nobody else to hand it to.
+  $("wrap-list-owner").classList.toggle("hidden", $("input-list-private").checked);
+}
+
+function renderListAdmin() {
+  const wrap = $("list-admin");
+  if (!wrap) return;
+  const lists = visibleLists();
+  wrap.innerHTML = "";
+  $("list-admin-empty").classList.toggle("hidden", lists.length > 0);
+
+  lists.forEach((l) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "list-admin-row";
+
+    const icon = document.createElement("span");
+    icon.className = "list-admin-icon";
+    icon.textContent = l.emoji || "•";
+    row.appendChild(icon);
+
+    const main = document.createElement("span");
+    main.className = "list-admin-main";
+    const name = document.createElement("span");
+    name.className = "list-admin-name";
+    name.textContent = l.name;
+    main.appendChild(name);
+
+    const bits = [l.order ? `#${l.order}` : "last"];
+    if (l.private) bits.push("private");
+    else if (l.owner && profilesCache[l.owner]) bits.push(profilesCache[l.owner].name);
+    if (l.includeInSummaries === false) bits.push("own tab only");
+    const meta = document.createElement("span");
+    meta.className = "list-admin-meta";
+    meta.textContent = bits.join(" · ");
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    const count = document.createElement("span");
+    count.className = "list-admin-count";
+    const n = Object.values(tasksById).filter((t) => t.listId === l.id).length;
+    count.textContent = `${n} task${n === 1 ? "" : "s"}`;
+    row.appendChild(count);
+
+    row.onclick = () => openListEditor(l.id);
+    wrap.appendChild(row);
+  });
+}
+
+function openListEditor(id) {
+  editingListId = id;
+  const l = id ? listsCache[id] : null;
+  $("list-edit-title").textContent = l ? "Edit list" : "Add a list";
+  $("input-list-name").value = l ? l.name : "";
+  $("input-list-emoji").value = l ? (l.emoji || "") : "";
+  $("input-list-private").checked = l ? !!l.private : false;
+  $("input-list-summaries").checked = l ? l.includeInSummaries !== false : true;
+  $("list-error").textContent = "";
+  $("btn-delete-list").classList.toggle("hidden", !l);
+
+  // The order can run from 1 (straight after Home) to one past the current
+  // tabs, which is what a brand-new list takes by default: last.
+  const max = maxTabOrder() + (l ? 0 : 1);
+  $("input-list-order").max = max;
+  $("input-list-order").value = l && l.order ? l.order : max;
+  $("list-order-hint").textContent = `1 puts it first after Home. Leave it at ${max} to keep it last, whatever else gets added.`;
+
+  populateOwnerLikeSelect($("input-list-owner"), l ? l.owner : null);
+  fillPersonOptions($("input-list-filter"), "due");
+  $("input-list-filter").value = l && l.defaultFilter ? l.defaultFilter : "anyone";
+  $("input-list-sort").value = l && l.defaultSort ? l.defaultSort : "dueDate";
+
+  syncListOwnerRow();
+  showHomeStep("list-edit");
+}
+
+function populateOwnerLikeSelect(sel, current) {
+  sel.innerHTML = '<option value="">No owner</option>';
+  sortedProfileIds.forEach((id) => {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = profilesCache[id].name;
+    sel.appendChild(opt);
+  });
+  sel.value = current && profilesCache[current] ? current : "";
+}
+
+on("btn-save-list", "click", async () => {
+  const name = $("input-list-name").value.trim();
+  const err = $("list-error");
+  err.textContent = "";
+  if (!name) { err.textContent = "Give the list a name."; return; }
+  const clash = Object.values(listsCache)
+    .some((l) => l.id !== editingListId && (l.name || "").toLowerCase() === name.toLowerCase());
+  if (clash) { err.textContent = "There's already a list with that name."; return; }
+
+  const isPrivate = $("input-list-private").checked;
+  const max = maxTabOrder() + (editingListId ? 0 : 1);
+  const data = {
+    name,
+    emoji: $("input-list-emoji").value.trim(),
+    // The top number means "last" rather than a fixed slot, so a list left
+    // at the default stays at the end when another is added in front of it.
+    order: (() => {
+      const n = Math.max(1, Math.min(max, parseInt($("input-list-order").value, 10) || max));
+      return n >= max ? null : n;
+    })(),
+    private: isPrivate,
+    privateTo: isPrivate ? (currentProfile ? currentProfile.id : null) : null,
+    owner: isPrivate ? null : ($("input-list-owner").value || null),
+    includeInSummaries: $("input-list-summaries").checked,
+    defaultFilter: $("input-list-filter").value,
+    defaultSort: $("input-list-sort").value,
+  };
+
+  $("btn-save-list").disabled = true;
+  try {
+    if (editingListId) {
+      await updateDoc(listDoc(editingListId), data);
+    } else {
+      await addDoc(listsCol(), { ...data, createdBy: currentProfile.id, createdAt: serverTimestamp() });
+    }
+    renderListAdmin();
+    showHomeStep("lists");
+    showToast("List saved");
+  } catch (e) {
+    err.textContent = `Couldn't save — ${e.message || e.code || "unknown error"}.`;
+  } finally {
+    $("btn-save-list").disabled = false;
+  }
+});
+
+// ---------- deleting a list ----------
+let deletingListId = null;
+let deleteListChoice = "keep";
+
+on("btn-delete-list", "click", () => {
+  if (editingListId) openDeleteListModal(editingListId);
+});
+
+function openDeleteListModal(id) {
+  deletingListId = id;
+  deleteListChoice = "keep";
+  const l = listsCache[id];
+  const n = Object.values(tasksById).filter((t) => t.listId === id).length;
+  const them = n === 1 ? "it" : "them";
+
+  $("dellist-title").textContent = `Delete “${l ? l.name : "this list"}”?`;
+  $("dellist-sub").textContent = n
+    ? `There ${n === 1 ? "is" : "are"} ${n} task${n === 1 ? "" : "s"} on this list. What should happen to ${them}?`
+    : "The list is empty, so there's nothing else to decide.";
+  $("dellist-choices").classList.toggle("hidden", n === 0);
+  $("dellist-keep-note").textContent = `${n === 1 ? "It moves" : "They move"} back to the main lists.`;
+  $("dellist-delete-note").textContent = `${n === 1 ? "It goes" : "They go"} for good, along with the list.`;
+
+  const note = $("dellist-history-note");
+  note.textContent = "Anything already done on this list stays in your log, under the list's name.";
+  note.classList.remove("hidden");
+
+  renderDeleteListChoices();
+  setModalOpen("dellist-modal-backdrop", true);
+}
+
+function renderDeleteListChoices() {
+  document.querySelectorAll("#dellist-choices .choice").forEach((btn) => {
+    const on_ = btn.dataset.choice === deleteListChoice;
+    btn.classList.toggle("selected", on_);
+    btn.setAttribute("aria-pressed", on_ ? "true" : "false");
+  });
+}
+
+document.querySelectorAll("#dellist-choices .choice").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    deleteListChoice = btn.dataset.choice;
+    renderDeleteListChoices();
+  });
+});
+
+on("btn-cancel-dellist", "click", () => {
+  setModalOpen("dellist-modal-backdrop", false);
+  deletingListId = null;
+});
+
+on("btn-confirm-dellist", "click", async () => {
+  const id = deletingListId;
+  if (!id) return;
+  const used = Object.values(tasksById).filter((t) => t.listId === id);
+
+  $("btn-confirm-dellist").disabled = true;
+  try {
+    if (deleteListChoice === "delete") {
+      await Promise.all(used.map((t) => deleteDoc(taskDoc(t.id))));
+    } else {
+      await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), { listId: null })));
+    }
+
+    // The log is left alone. What was done was done, and whoever could see it
+    // at the time still can — including the name of a list that's now gone.
+    await deleteDoc(listDoc(id));
+    listFilter.delete(id);
+    editingListId = null;
+    deletingListId = null;
+    setModalOpen("dellist-modal-backdrop", false);
+    renderListAdmin();
+    showHomeStep("lists");
+    showToast(deleteListChoice === "delete" ? "List and its tasks deleted" : "List deleted");
+  } catch (e) {
+    showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
+  } finally {
+    $("btn-confirm-dellist").disabled = false;
+  }
+});
+
 // ---------- categories ----------
 function subscribeCategories() {
   if (unsubCategories) unsubCategories();
@@ -928,7 +1239,7 @@ function subscribeCategories() {
 
 const CAT_FILTER_IDS = [
   "filter-cat-home", "filter-cat-due", "filter-cat-done",
-  "filter-cat-alltasks", "filter-cat-summary",
+  "filter-cat-alltasks", "filter-cat-summary", "filter-cat-list",
 ];
 
 // Categories are tags, so the filter is a set rather than one choice, and a
@@ -938,12 +1249,19 @@ const CAT_FILTER_IDS = [
 const categoryFilter = new Set();
 
 function categoryFilterLabel() {
-  if (categoryFilter.size === 0) return "All categories";
-  if (categoryFilter.size === 1) {
+  const total = categoryFilter.size + listFilter.size;
+  if (total === 0) return "All categories";
+  if (total === 1) {
+    if (listFilter.size === 1) {
+      const only = [...listFilter][0];
+      if (only === "main") return "Main lists";
+      const l = listById(only);
+      return l ? (l.emoji ? `${l.emoji} ${l.name}` : l.name) : "1 list";
+    }
     const only = [...categoryFilter][0];
     return only === "none" ? "Untagged" : (categoryName(only) || "1 category");
   }
-  return `${categoryFilter.size} categories`;
+  return `${total} filters`;
 }
 
 function syncCategoryFilterButtons() {
@@ -977,7 +1295,31 @@ CAT_FILTER_IDS.forEach((id) => {
 
 function openCategoryFilterModal() {
   renderCategoryFilterOptions();
+  renderListFilterOptions();
   setModalOpen("catfilter-modal-backdrop", true);
+}
+
+// Lists sit in the same filter sheet as categories so the tab heads don't
+// grow another control.
+function renderListFilterOptions() {
+  const wrap = $("listfilter-options");
+  const lists = visibleLists();
+  $("listfilter-field").classList.toggle("hidden", lists.length === 0);
+  if (!lists.length) return;
+  wrap.innerHTML = "";
+
+  const entries = [["main", "Main lists"]].concat(
+    lists.map((l) => [l.id, l.emoji ? `${l.emoji} ${l.name}` : l.name]));
+
+  entries.forEach(([value, label]) => {
+    wrap.appendChild(buildChip(label, listFilter.has(value), () => {
+      if (listFilter.has(value)) listFilter.delete(value);
+      else listFilter.add(value);
+      renderListFilterOptions();
+      syncCategoryFilterButtons();
+      renderAll();
+    }));
+  });
 }
 
 function renderCategoryFilterOptions() {
@@ -1001,7 +1343,9 @@ function renderCategoryFilterOptions() {
 
 on("btn-clear-catfilter", "click", () => {
   categoryFilter.clear();
+  listFilter.clear();
   renderCategoryFilterOptions();
+  renderListFilterOptions();
   syncCategoryFilterButtons();
   renderAll();
 });
@@ -1122,19 +1466,132 @@ async function deleteCategory(id) {
 }
 
 // ---------- tabs ----------
+const BUILTIN_TABS = [
+  { tab: "due", label: "To-do" },
+  { tab: "done", label: "Done" },
+  { tab: "alltasks", label: "All tasks" },
+  { tab: "summary", label: "Summary" },
+  { tab: "log", label: "Log" },
+];
+
+// How many positions a list's "order" can take: every tab except Home.
+function maxTabOrder() {
+  return BUILTIN_TABS.length + visibleLists().length;
+}
+
+// The built-in tabs with each custom list slotted in at its chosen position —
+// order 1 sits right after Home. A list left at the default has no number of
+// its own and simply stays last, so adding another list in front of it
+// doesn't shuffle it up the bar.
+function orderedTabs() {
+  const customs = visibleLists();
+  const total = BUILTIN_TABS.length + customs.length;
+  const slots = new Array(total).fill(null);
+  const describe = (l) => ({
+    tab: `list:${l.id}`,
+    label: l.emoji || l.name,
+    title: l.name,
+    emoji: !!l.emoji,
+  });
+
+  // Numbered lists claim their slot; if two want the same one, the later
+  // takes the next free slot along.
+  customs.filter((l) => l.order).forEach((l) => {
+    let at = Math.max(0, Math.min(total - 1, l.order - 1));
+    while (slots[at]) at = (at + 1) % total;
+    slots[at] = describe(l);
+  });
+
+  // The unnumbered ones fill the last free slots, keeping their own order.
+  const unnumbered = customs.filter((l) => !l.order);
+  let s = total - 1;
+  for (let i = unnumbered.length - 1; i >= 0; i--) {
+    while (s >= 0 && slots[s]) s--;
+    if (s >= 0) slots[s--] = describe(unnumbered[i]);
+  }
+
+  let b = 0;
+  for (let i = 0; i < total; i++) if (!slots[i]) slots[i] = BUILTIN_TABS[b++];
+  return slots;
+}
+
+let tabsLocked = true;
+
+function rebuildTabs() {
+  const bar = $("tabbar");
+  if (!bar) return;
+  bar.innerHTML = "";
+
+  const home = document.createElement("button");
+  home.className = "tab-btn";
+  home.dataset.tab = "home";
+  const homeLabel = document.createElement("span");
+  homeLabel.id = "tab-home-label";
+  homeLabel.textContent = currentProfile ? currentProfile.name : "Home";
+  home.appendChild(homeLabel);
+  bar.appendChild(home);
+
+  orderedTabs().forEach((t) => {
+    const btn = document.createElement("button");
+    btn.className = `tab-btn${t.emoji ? " tab-emoji" : ""}`;
+    btn.dataset.tab = t.tab;
+    btn.textContent = t.label;
+    if (t.title) {
+      btn.title = t.title;
+      btn.setAttribute("aria-label", t.title);
+    }
+    btn.disabled = tabsLocked;
+    bar.appendChild(btn);
+  });
+
+  bar.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  // If the tab we were on has gone (a list deleted, or one that turned
+  // private while someone else was looking), fall back to Home.
+  const stillThere = [...bar.querySelectorAll(".tab-btn")].some((b) => b.dataset.tab === activeTab);
+  if (!stillThere) switchTab("home");
+  else markActiveTab();
+}
+
 function setTabsLocked(locked) {
-  document.querySelectorAll(".tab-btn[data-tab]").forEach((btn) => {
+  tabsLocked = locked;
+  document.querySelectorAll("#tabbar .tab-btn[data-tab]").forEach((btn) => {
     if (btn.dataset.tab === "home") return;
     btn.disabled = locked;
   });
 }
 
+function markActiveTab() {
+  document.querySelectorAll("#tabbar .tab-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tab === activeTab));
+  const paneId = activeTab.startsWith("list:") ? "pane-list" : `pane-${activeTab}`;
+  document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("active", p.id === paneId));
+}
+
+// The list whose tab is open, if any.
+function activeListId() {
+  return activeTab.startsWith("list:") ? activeTab.slice(5) : null;
+}
+
 function switchTab(tab) {
+  const changedList = tab !== activeTab && tab.startsWith("list:");
   activeTab = tab;
-  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("active", p.id === `pane-${tab}`));
-  $("btn-add-task").classList.toggle("hidden",
-    !currentProfile || tab === "home" || tab === "log" || tab === "summary");
+  markActiveTab();
+  if (changedList) {
+    const l = listById(activeListId());
+    if (l) {
+      populateListPaneFilter();
+      const want = l.defaultFilter || "anyone";
+      $("filter-list").value = [...$("filter-list").options].some((o) => o.value === want)
+        ? want : "anyone";
+      $("sort-list").value = l.defaultSort || "dueDate";
+    }
+  }
+  const noAdd = tab === "home" || tab === "log" || tab === "summary";
+  $("btn-add-task").classList.toggle("hidden", !currentProfile || noAdd);
+  if (activeListId()) renderCustomList();
   // A new tab always starts at the top, however far down the last one was.
   window.scrollTo(0, 0);
   centreActiveTab();
@@ -1151,11 +1608,24 @@ function centreActiveTab() {
   bar.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
 }
 
-document.querySelectorAll(".tab-btn").forEach((btn) => {
-  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
-});
 
 // ---------- selects ----------
+function populateListSelect() {
+  const sel = $("input-task-list");
+  if (!sel) return;
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">Main lists</option>';
+  visibleLists().forEach((l) => {
+    const opt = document.createElement("option");
+    opt.value = l.id;
+    opt.textContent = l.emoji ? `${l.emoji} ${l.name}` : l.name;
+    sel.appendChild(opt);
+  });
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  // No point showing the picker at all until there's somewhere else to put it.
+  $("wrap-task-list").classList.toggle("hidden", visibleLists().length === 0);
+}
+
 function populateOwnerSelect() {
   const sel = $("input-task-owner");
   const keep = sel.value;
@@ -1177,8 +1647,7 @@ function populateOwnerSelect() {
 let assignFilter = "mine";
 let doneFilter = "mine";
 
-function populateFilterSelect(sel, kind) {
-  const current = kind === "done" ? doneFilter : assignFilter;
+function fillPersonOptions(sel, kind) {
   sel.innerHTML = "";
   const labels = kind === "done"
     ? [["mine", "Done by me"], ["anyone", "Done by anyone"]]
@@ -1196,16 +1665,36 @@ function populateFilterSelect(sel, kind) {
     opt.textContent = profilesCache[id].name;
     sel.appendChild(opt);
   });
+  // Unclaimed work still needs somewhere to show up.
+  const unassigned = document.createElement("option");
+  unassigned.value = "unassigned";
+  unassigned.textContent = kind === "done" ? "Skipped / nobody" : "Unassigned";
+  sel.appendChild(unassigned);
+}
+
+function populateFilterSelect(sel, kind) {
+  const current = kind === "done" ? doneFilter : assignFilter;
+  fillPersonOptions(sel, kind);
   if (![...sel.options].some((o) => o.value === current)) {
     if (kind === "done") doneFilter = "mine"; else assignFilter = "mine";
   }
   sel.value = kind === "done" ? doneFilter : assignFilter;
 }
 
+// A custom list keeps its own filter, seeded from the list's own default,
+// rather than sharing the one To-do uses.
+function populateListPaneFilter() {
+  const sel = $("filter-list");
+  const keep = sel.value;
+  fillPersonOptions(sel, "due");
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
 function populatePersonFilters() {
   populateFilterSelect($("filter-due"), "due");
   populateFilterSelect($("filter-checklist"), "due");
   populateFilterSelect($("filter-done"), "done");
+  populateListPaneFilter();
 }
 
 function onAssignFilterChange(e) {
@@ -1390,6 +1879,7 @@ function normaliseTask(id, raw) {
     categoryIds: Array.isArray(raw.categoryIds)
       ? raw.categoryIds
       : (raw.categoryId ? [raw.categoryId] : []),
+    listId: raw.listId || null,
   };
 }
 
@@ -1398,7 +1888,8 @@ function subscribeLog() {
   const q = query(logCol(), orderBy("doneAt", "desc"));
   unsubLog = onSnapshot(q, (snap) => {
     logRows = [];
-    snap.forEach((d) => logRows.push(d.data()));
+    // The id rides along so entries can be removed with their list.
+    snap.forEach((d) => logRows.push({ __id: d.id, ...d.data() }));
     renderLogList(logRows);
     renderSummary();
   });
@@ -1419,6 +1910,11 @@ function startRollover() {
 
 function renderAll() {
   if (!currentProfile) return;
+  // The Log is driven by its own snapshot, which doesn't re-fire when the
+  // active profile changes — so it has to be redrawn here too, or switching
+  // person leaves the previous one's entries on screen.
+  renderLogList(logRows);
+  renderCustomList();
   renderChecklist();
   renderDue();
   renderDoneList();
@@ -1427,15 +1923,20 @@ function renderAll() {
 }
 
 // matches an assignment-style filter (To-do tab): "mine" counts unassigned too
+// "Mine" means the ones actually on me — nobody else's, and not the ones
+// sitting there unclaimed. Those have their own option so they're still easy
+// to find.
 function matchesAssignFilter(value, assignedTo) {
   if (value === "anyone") return true;
-  if (value === "mine") return !assignedTo || assignedTo === currentProfile.id;
+  if (value === "unassigned") return !assignedTo;
+  if (value === "mine") return assignedTo === currentProfile.id;
   return assignedTo === value;
 }
 
-// matches a "done by" filter (Done tab): no unassigned concept
+// matches a "done by" filter (Done tab)
 function matchesDoneFilter(value, doneBy) {
   if (value === "anyone") return true;
+  if (value === "unassigned") return !doneBy;   // skipped, or nobody recorded
   if (value === "mine") return doneBy === currentProfile.id;
   return doneBy === value;
 }
@@ -1457,7 +1958,8 @@ function renderDue() {
   const sortVal = $("sort-due").value;
 
   let list_ = Object.values(tasksById).filter((t) => isOpenNow(t, now));
-  list_ = list_.filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t));
+  list_ = list_.filter((t) => matchesAssignFilter(assignFilter, t.assignedTo)
+    && matchesCategoryFilter(t) && passesListRules(t));
 
   if (sortVal === "alpha") {
     list_.sort((a, b) => a.title.localeCompare(b.title));
@@ -1470,26 +1972,69 @@ function renderDue() {
     list_.sort((a, b) => dueSortValue(a) - dueSortValue(b));
   }
 
-  visibleLists.due = list_;
+  copyBuffers.due = list_;
   const list = $("list-due");
   list.innerHTML = "";
   $("due-empty").classList.toggle("hidden", list_.length > 0);
   list_.forEach((t) => list.appendChild(renderOpenRow(t, now)));
 }
 
+// A custom list's own tab: the open tasks on that list, nothing else.
+function renderCustomList() {
+  const id = activeListId();
+  const list = listById(id);
+  if (!id || !list || !currentProfile) return;
+
+  $("list-pane-title").textContent = list.emoji ? `${list.emoji} ${list.name}` : list.name;
+
+  const notes = [];
+  if (list.private) {
+    notes.push("Private to you — nobody else in the household sees this list or its tasks.");
+  } else if (list.owner && profilesCache[list.owner]) {
+    notes.push(`Shared · ${profilesCache[list.owner].name}'s list.`);
+  }
+  if (list.includeInSummaries === false) {
+    notes.push("Kept out of the Home checklist, the Log and the Summary.");
+  }
+  const note = $("list-pane-note");
+  note.textContent = notes.join(" ");
+  note.classList.toggle("hidden", notes.length === 0);
+
+  const now = new Date();
+  const filterVal = $("filter-list").value;
+  const sortVal = $("sort-list").value;
+  let rows = Object.values(tasksById)
+    .filter((t) => t.listId === id && isOpenNow(t, now))
+    .filter((t) => matchesAssignFilter(filterVal, t.assignedTo) && matchesCategoryFilter(t));
+
+  if (sortVal === "alpha") rows.sort((a, b) => a.title.localeCompare(b.title));
+  else if (sortVal === "priority") {
+    rows.sort((a, b) => (b.priority || 0) - (a.priority || 0) || dueSortValue(a) - dueSortValue(b));
+  } else rows.sort((a, b) => dueSortValue(a) - dueSortValue(b));
+
+  copyBuffers.custom = rows;
+  const ul = $("list-custom");
+  ul.innerHTML = "";
+  $("list-empty").classList.toggle("hidden", rows.length > 0);
+  rows.forEach((t) => ul.appendChild(renderOpenRow(t, now)));
+}
+
+on("filter-list", "change", renderCustomList);
+on("sort-list", "change", renderCustomList);
+
 function renderDoneList() {
   const sortVal = $("sort-done").value;
   let done = Object.values(tasksById).filter((t) => !!t.lastCompletion);
   done = done.filter((t) =>
     matchesDoneFilter(doneFilter, t.lastCompletion.skipped ? null : t.lastCompletion.by)
-    && matchesCategoryFilter(t));
+    && matchesCategoryFilter(t) && passesListRules(t));
 
   const doneAtMs = (t) => t.lastCompletion.at?.toDate?.()?.getTime() ?? 0;
   if (sortVal === "alpha") done.sort((a, b) => a.title.localeCompare(b.title));
   else if (sortVal === "oldest") done.sort((a, b) => doneAtMs(a) - doneAtMs(b));
   else done.sort((a, b) => doneAtMs(b) - doneAtMs(a));
 
-  visibleLists.done = done;
+  copyBuffers.done = done;
   const list = $("list-done");
   list.innerHTML = "";
   $("done-empty").classList.toggle("hidden", done.length > 0);
@@ -1510,7 +2055,7 @@ function renderAllTasks() {
   const searchVal = $("alltasks-search").value.trim().toLowerCase();
   const sortVal = $("alltasks-sort").value;
 
-  let all = Object.values(tasksById).filter(matchesCategoryFilter);
+  let all = Object.values(tasksById).filter((t) => matchesCategoryFilter(t) && passesListRules(t));
   if (searchVal) all = all.filter((t) => t.title.toLowerCase().includes(searchVal));
 
   const createdMs = (t) => t.createdAt?.toDate?.()?.getTime() ?? 0;
@@ -1530,7 +2075,7 @@ function renderAllTasks() {
     all.sort((a, b) => dueSortValue(a) - dueSortValue(b));
   }
 
-  visibleLists.alltasks = all;
+  copyBuffers.alltasks = all;
   const list = $("list-alltasks");
   list.innerHTML = "";
   $("alltasks-empty").classList.toggle("hidden", all.length > 0);
@@ -1709,7 +2254,7 @@ function renderAllTasksRow(task, now) {
 // ---------- copying a list out ----------
 // Whatever each list is showing right now, so "Copy list" hands over exactly
 // what's on screen — same filters, same sort, same order.
-const visibleLists = { due: [], done: [], alltasks: [], open: [], recent: [] };
+const copyBuffers = { due: [], done: [], alltasks: [], custom: [], open: [], recent: [] };
 
 async function copyText(text, okMsg = "Copied to clipboard") {
   try {
@@ -1735,6 +2280,7 @@ async function copyText(text, okMsg = "Copied to clipboard") {
 function personPhrase(kind) {
   const v = kind === "done" ? doneFilter : assignFilter;
   if (v === "anyone") return kind === "done" ? "Done by anyone" : "Everyone's tasks";
+  if (v === "unassigned") return kind === "done" ? "Skipped" : "Unassigned tasks";
   if (v === "mine") return kind === "done" ? "Done by me" : "My tasks";
   const name = profilesCache[v]?.name || "Someone";
   return kind === "done" ? `Done by ${name}` : `${name}'s tasks`;
@@ -1754,18 +2300,22 @@ function buildListText(which) {
   let lines = [];
   if (which === "due") {
     header = personPhrase("due") + categoryPhrase();
-    lines = visibleLists.due.map((t) => `- ${t.title}`);
+    lines = copyBuffers.due.map((t) => `- ${t.title}`);
   } else if (which === "done") {
     header = personPhrase("done") + categoryPhrase();
-    lines = visibleLists.done.map((t) => `✓ ${t.title}`);
+    lines = copyBuffers.done.map((t) => `✓ ${t.title}`);
   } else if (which === "alltasks") {
     const search = $("alltasks-search").value.trim();
     header = `All tasks${categoryPhrase()}${search ? ` matching "${search}"` : ""}`;
-    lines = visibleLists.alltasks.map((t) => `- ${t.title}`);
+    lines = copyBuffers.alltasks.map((t) => `- ${t.title}`);
+  } else if (which === "custom") {
+    const list = listById(activeListId());
+    header = (list ? list.name : "List") + categoryPhrase();
+    lines = copyBuffers.custom.map((t) => `- ${t.title}`);
   } else {
     header = personPhrase("due") + categoryPhrase();
-    lines = visibleLists.open.map((t) => `- ${t.title}`)
-      .concat(visibleLists.recent.map((t) => `✓ ${t.title}`));
+    lines = copyBuffers.open.map((t) => `- ${t.title}`)
+      .concat(copyBuffers.recent.map((t) => `✓ ${t.title}`));
   }
   if (!lines.length) lines = ["(nothing on this list)"];
   return `${header}\n${lines.join("\n")}`;
@@ -1775,6 +2325,7 @@ on("copy-due", "click", () => copyText(buildListText("due")));
 on("copy-done", "click", () => copyText(buildListText("done")));
 on("copy-alltasks", "click", () => copyText(buildListText("alltasks")));
 on("copy-checklist", "click", () => copyText(buildListText("checklist")));
+on("copy-list", "click", () => copyText(buildListText("custom")));
 
 // ---------- Home: at-a-glance checklist ----------
 // Everything currently open, as a tickable list, with whatever was finished
@@ -1789,7 +2340,8 @@ function renderChecklist() {
 
   const open = Object.values(tasksById)
     .filter((t) => isOpenNow(t, now))
-    .filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t))
+    .filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t)
+      && taskCountsInSummaries(t) && matchesListFilter(t))
     .sort((a, b) => dueSortValue(a) - dueSortValue(b));
 
   // The ticked-off half matches on who actually did it — that's whose tick
@@ -1801,11 +2353,11 @@ function renderChecklist() {
     })
     .filter((t) =>
       matchesDoneFilter(assignFilter, t.lastCompletion.skipped ? null : t.lastCompletion.by)
-      && matchesCategoryFilter(t))
+      && matchesCategoryFilter(t) && taskCountsInSummaries(t) && matchesListFilter(t))
     .sort((a, b) => b.lastCompletion.at.toDate() - a.lastCompletion.at.toDate());
 
-  visibleLists.open = open;
-  visibleLists.recent = recent;
+  copyBuffers.open = open;
+  copyBuffers.recent = recent;
   list.innerHTML = "";
   $("checklist-empty").classList.toggle("hidden", open.length + recent.length > 0);
 
@@ -1927,6 +2479,7 @@ function renderSummary() {
   const rows = logRows.filter((r) => {
     const at = r.doneAt?.toDate?.();
     if (start && (!at || at < start)) return false;
+    if (!logRowAllowed(r) || !logRowMatchesFilter(r)) return false;
     return matchesCategoryFilter({ categoryIds: rowCategories(r) });
   });
 
@@ -1959,7 +2512,7 @@ function renderSummary() {
 
   const now = new Date();
   Object.values(tasksById).forEach((t) => {
-    if (!matchesCategoryFilter(t)) return;
+    if (!matchesCategoryFilter(t) || !taskCountsInSummaries(t) || !matchesListFilter(t)) return;
     if (t.freq.type === "once" && t.lastCompletion) return;
     if (t.lastCompletion && taskStatus(t, now) === "pending") return;
     if (t.assignedTo && profilesCache[t.assignedTo]) ensure(t.assignedTo).open += 1;
@@ -2050,7 +2603,31 @@ function fmtLogWhen(date) {
   return `${h}.${mins}${ampm}, ${weekday} ${month} ${date.getDate()}`;
 }
 
-function renderLogList(rows) {
+// Whether a log entry is for this pair of eyes, decided purely from what was
+// stamped on it when it was written. Deleting or changing a list afterwards
+// doesn't alter anyone's log — the entry already said who it was for.
+//
+// Entries written before this was recorded carry no stamp, and count as
+// shared, which is what they were at the time.
+function logRowAllowed(r) {
+  if (r.visibleTo && (!currentProfile || r.visibleTo !== currentProfile.id)) return false;
+  if (r.inSummaries === false) return false;
+  return true;
+}
+
+// The list filter is a live view control, so it only applies to lists that
+// still exist. History from a deleted list can't be filtered by a list that
+// isn't there any more, so it simply stays visible.
+function logRowMatchesFilter(r) {
+  if (listFilter.size === 0) return true;
+  const id = r.listId || null;
+  if (!id) return listFilter.has("main");
+  if (!listsCache[id]) return true;
+  return listFilter.has(id);
+}
+
+function renderLogList(allRows) {
+  const rows = allRows.filter((r) => logRowAllowed(r) && logRowMatchesFilter(r));
   const list = $("list-log");
   list.innerHTML = "";
   $("log-empty").classList.toggle("hidden", rows.length > 0);
@@ -2068,6 +2645,15 @@ function renderLogList(rows) {
       ? `<strong style="color:var(--danger)">Skipped</strong> ${escapeHtml(r.taskTitle)}${when ? ` at ${when}` : ""}`
       : `<strong style="color:${colorForProfile(r.doneBy)}">${escapeHtml(r.doneByName || "Someone")}</strong> completed ${escapeHtml(r.taskTitle)}${when ? ` at ${when}` : ""}`;
     main.appendChild(text);
+
+    // The list is named from what was recorded at the time, so an entry still
+    // reads properly once that list has been deleted.
+    if (r.listName) {
+      const from = document.createElement("span");
+      from.className = "log-list";
+      from.textContent = r.listName;
+      main.appendChild(from);
+    }
 
     li.appendChild(avatar);
     li.appendChild(main);
@@ -2231,10 +2817,21 @@ async function completeTask(task, byId, skipped, mins = null) {
 
   // Log first so the completion can point at its own log entry — that's
   // what lets an undo take the entry back out again.
+  //
+  // A log entry is a record of what happened at the time, so everything it
+  // needs is written into it here: which list it came from and what that
+  // list was called, who was allowed to see it, and whether it counted
+  // towards summaries. None of that is looked up again later, so renaming,
+  // re-sharing or deleting a list never rewrites history.
+  const srcList = listById(task.listId);
   const logRef = await addDoc(logCol(), {
     taskId: task.id,
     taskTitle: task.title,
     categoryIds: task.categoryIds || [],
+    listId: task.listId || null,
+    listName: srcList ? srcList.name : null,
+    visibleTo: srcList && srcList.private ? (srcList.privateTo || null) : null,
+    inSummaries: srcList ? srcList.includeInSummaries !== false : true,
     doneBy: skipped ? null : byId,
     doneByName: skipped ? null : (profilesCache[byId]?.name || "Someone"),
     skipped: !!skipped,
@@ -2468,7 +3065,12 @@ function openAddTaskModal() {
   $("input-monthday").value = 1;
   $("input-task-date").value = localDateStr(new Date());
   $("input-task-time").value = "";
-  $("input-task-owner").value = "";
+  populateListSelect();
+  const standingIn = activeListId();
+  $("input-task-list").value = standingIn && listById(standingIn) ? standingIn : "";
+  const landing = listById($("input-task-list").value);
+  $("input-task-owner").value = landing && landing.owner && profilesCache[landing.owner]
+    ? landing.owner : "";
   $("input-task-taketurns").checked = false;
   $("input-task-estimate").value = "";
   $("task-advanced").open = false;
@@ -2504,6 +3106,8 @@ function openEditTaskModal(task) {
   $("input-task-time").value = task.hasTime
     ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
     : "";
+  populateListSelect();
+  $("input-task-list").value = task.listId && listById(task.listId) ? task.listId : "";
   $("input-task-owner").value = task.owner || "";
   $("input-task-taketurns").checked = !!task.takeTurns;
   $("input-task-estimate").value = task.estimateMins == null ? "" : task.estimateMins;
@@ -2576,6 +3180,7 @@ async function saveTask() {
   // Taking turns and having an owner are mutually exclusive.
   const owner = takeTurns ? null : ($("input-task-owner").value || null);
   const categoryIds = [...taskModalCategories];
+  const listId = $("input-task-list").value || null;
   const estimateRaw = $("input-task-estimate").value.trim();
   const estimateMins = estimateRaw === "" ? null : Math.max(0, parseInt(estimateRaw, 10) || 0);
 
@@ -2585,7 +3190,7 @@ async function saveTask() {
       const existing = tasksById[editingTaskId];
       const patch = {
         title, freq, dueMode, dueAt: dueDate ? Timestamp.fromDate(dueDate) : null, hasTime,
-        owner, takeTurns, categoryIds, estimateMins,
+        owner, takeTurns, categoryIds, estimateMins, listId,
       };
       // Changing the owner carries the currently-open occurrence with it,
       // unless somebody has already taken that occurrence off the owner.
@@ -2597,7 +3202,7 @@ async function saveTask() {
     } else {
       await addDoc(tasksCol(), {
         title, freq, dueMode, dueAt: dueDate ? Timestamp.fromDate(dueDate) : null, hasTime,
-        owner, assignedTo: owner, takeTurns, categoryIds, estimateMins, priority: 0,
+        owner, assignedTo: owner, takeTurns, categoryIds, estimateMins, listId, priority: 0,
         createdBy: currentProfile.id, createdAt: serverTimestamp(),
       });
     }
@@ -2656,11 +3261,314 @@ async function showAppVersion() {
   el.textContent = version || "";
 }
 
+// ---------- themes ----------
+// Every colour the app paints with lives in these nine tokens, so a theme is
+// just a set of them. They're kept on this device rather than in the
+// household: how the app looks is a matter of whose phone it is.
+const THEME_TOKENS = [
+  ["blue-dark", "Primary", "Tab bar, buttons, links"],
+  ["blue-dark-2", "Primary dark", "Hover states and headings"],
+  ["blue-tint", "Page background", "Behind everything, and soft chips"],
+  ["card-bg", "Cards", "Task rows, modals, inputs"],
+  ["ink", "Text", "Titles and body text"],
+  ["ink-soft", "Muted text", "Labels and notes"],
+  ["line", "Borders", "Outlines and dividers"],
+  ["grey-done", "Done", "Finished and unassigned things"],
+  ["danger", "Warning", "Overdue, delete, highest priority"],
+];
+
+const PRESET_THEMES = {
+  light: {
+    name: "Light",
+    colors: {
+      "blue-dark": "#1E4E85", "blue-dark-2": "#163A64", "blue-tint": "#E7EFF8",
+      "card-bg": "#FFFFFF", ink: "#1C222A", "ink-soft": "#57606E",
+      line: "#D6E0EC", "grey-done": "#8E97A3", danger: "#B3362F",
+    },
+  },
+  dark: {
+    name: "Dark",
+    colors: {
+      "blue-dark": "#3E7DC4", "blue-dark-2": "#5A95D8", "blue-tint": "#131820",
+      "card-bg": "#1C232E", ink: "#E8EDF4", "ink-soft": "#9AA7B8",
+      line: "#2E3845", "grey-done": "#6B7785", danger: "#E0615A",
+    },
+  },
+  miami: {
+    name: "Miami",
+    colors: {
+      "blue-dark": "#E5447F", "blue-dark-2": "#C32F68", "blue-tint": "#FFF1E6",
+      "card-bg": "#FFFFFF", ink: "#20303A", "ink-soft": "#6B7F8C",
+      line: "#FFD3C2", "grey-done": "#00B2A9", danger: "#FF6B35",
+    },
+  },
+  sewer: {
+    name: "Sewer",
+    colors: {
+      "blue-dark": "#6B7A33", "blue-dark-2": "#4E5A24", "blue-tint": "#1A1C15",
+      "card-bg": "#262922", ink: "#DCE3C8", "ink-soft": "#9BA486",
+      line: "#3A3E2F", "grey-done": "#6E7560", danger: "#C06A2A",
+    },
+  },
+};
+
+const LS_THEME = "choretl.theme";
+const LS_CUSTOM_THEMES = "choretl.customThemes";
+
+let customThemes = [];
+let activeThemeId = "light";
+let themeDraft = null;        // the theme being edited, or null
+
+function loadThemes() {
+  try {
+    customThemes = JSON.parse(localStorage.getItem(LS_CUSTOM_THEMES) || "[]");
+    if (!Array.isArray(customThemes)) customThemes = [];
+  } catch (e) {
+    customThemes = [];
+  }
+  activeThemeId = localStorage.getItem(LS_THEME) || "light";
+  applyTheme(activeThemeId);
+}
+
+function themeById(id) {
+  if (PRESET_THEMES[id]) return PRESET_THEMES[id];
+  return customThemes.find((t) => t.id === id) || PRESET_THEMES.light;
+}
+
+function applyTheme(id, previewColors) {
+  const colors = previewColors || themeById(id).colors;
+  const root = document.documentElement;
+  THEME_TOKENS.forEach(([token]) => {
+    if (colors[token]) root.style.setProperty(`--${token}`, colors[token]);
+  });
+  // The browser's own chrome follows the primary colour.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta && colors["blue-dark"]) meta.setAttribute("content", colors["blue-dark"]);
+}
+
+function setActiveTheme(id) {
+  activeThemeId = id;
+  localStorage.setItem(LS_THEME, id);
+  applyTheme(id);
+  renderThemeGrid();
+}
+
+function saveCustomThemes() {
+  try {
+    localStorage.setItem(LS_CUSTOM_THEMES, JSON.stringify(customThemes));
+  } catch (e) {
+    showToast("Couldn't save the theme on this device.");
+  }
+}
+
+function paletteIconSvg() {
+  return `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.1 0-1 .8-1.7 1.7-1.7h2A4.6 4.6 0 0 0 21 10.6C21 6.4 16.9 3 12 3z"/><circle cx="7.5" cy="11" r="1.1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="8" r="1.1" fill="currentColor" stroke="none"/></svg>`;
+}
+
+on("btn-edit-theme", "click", () => {
+  themeDraft = null;
+  renderThemeGrid();
+  renderThemeEditor();
+  setModalOpen("theme-modal-backdrop", true);
+});
+
+on("btn-close-theme", "click", () => {
+  // Leaving without saving puts back whatever is actually selected.
+  themeDraft = null;
+  applyTheme(activeThemeId);
+  renderThemeEditor();
+  setModalOpen("theme-modal-backdrop", false);
+});
+
+function renderThemeGrid() {
+  const grid = $("theme-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  const entries = Object.entries(PRESET_THEMES).map(([id, t]) => ({ id, ...t, preset: true }))
+    .concat(customThemes.map((t) => ({ ...t, preset: false })));
+
+  entries.forEach((t) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `theme-card${t.id === activeThemeId ? " selected" : ""}`;
+    btn.onclick = () => setActiveTheme(t.id);
+
+    const strip = document.createElement("span");
+    strip.className = "theme-strip";
+    ["blue-dark", "blue-tint", "card-bg", "ink", "danger"].forEach((k) => {
+      const dot = document.createElement("span");
+      dot.style.background = t.colors[k];
+      strip.appendChild(dot);
+    });
+    btn.appendChild(strip);
+
+    const name = document.createElement("span");
+    name.className = "theme-name";
+    name.textContent = t.name;
+    btn.appendChild(name);
+
+    if (!t.preset) {
+      const edit = document.createElement("span");
+      edit.className = "theme-edit";
+      edit.textContent = "Edit";
+      edit.onclick = (e) => { e.stopPropagation(); openThemeEditor(t.id); };
+      btn.appendChild(edit);
+    }
+    grid.appendChild(btn);
+  });
+}
+
+on("btn-new-theme", "click", () => openThemeEditor(null));
+
+function openThemeEditor(id) {
+  const existing = id ? customThemes.find((t) => t.id === id) : null;
+  themeDraft = existing
+    ? { id: existing.id, name: existing.name, colors: { ...existing.colors } }
+    : { id: null, name: "My theme", colors: { ...themeById(activeThemeId).colors } };
+  renderThemeEditor();
+  applyTheme(null, themeDraft.colors);
+}
+
+function renderThemeEditor() {
+  const block = $("theme-custom-block");
+  if (!block) return;
+  block.classList.toggle("hidden", !themeDraft);
+  if (!themeDraft) return;
+
+  $("input-theme-name").value = themeDraft.name;
+  $("btn-delete-theme").classList.toggle("hidden", !themeDraft.id);
+
+  const wrap = $("theme-swatches");
+  wrap.innerHTML = "";
+  THEME_TOKENS.forEach(([token, label, note]) => {
+    const row = document.createElement("label");
+    row.className = "swatch-row-item";
+
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = themeDraft.colors[token] || "#000000";
+    input.oninput = () => {
+      themeDraft.colors[token] = input.value;
+      applyTheme(null, themeDraft.colors);   // repaint as you pick
+    };
+    row.appendChild(input);
+
+    const text = document.createElement("span");
+    text.className = "swatch-text";
+    const t1 = document.createElement("span");
+    t1.className = "swatch-label";
+    t1.textContent = label;
+    const t2 = document.createElement("span");
+    t2.className = "swatch-note";
+    t2.textContent = note;
+    text.appendChild(t1);
+    text.appendChild(t2);
+    row.appendChild(text);
+
+    wrap.appendChild(row);
+  });
+}
+
+on("input-theme-name", "input", () => { if (themeDraft) themeDraft.name = $("input-theme-name").value; });
+
+on("btn-reset-theme", "click", () => {
+  if (!themeDraft) return;
+  themeDraft.colors = { ...PRESET_THEMES.light.colors };
+  renderThemeEditor();
+  applyTheme(null, themeDraft.colors);
+});
+
+on("btn-save-theme", "click", () => {
+  if (!themeDraft) return;
+  const name = ($("input-theme-name").value || "").trim() || "My theme";
+  themeDraft.name = name;
+  if (themeDraft.id) {
+    const i = customThemes.findIndex((t) => t.id === themeDraft.id);
+    if (i >= 0) customThemes[i] = { ...themeDraft };
+  } else {
+    themeDraft.id = `custom-${Date.now().toString(36)}`;
+    customThemes.push({ ...themeDraft });
+  }
+  saveCustomThemes();
+  setActiveTheme(themeDraft.id);
+  themeDraft = null;
+  renderThemeEditor();
+  showToast("Theme saved");
+});
+
+on("btn-delete-theme", "click", () => {
+  if (!themeDraft || !themeDraft.id) return;
+  customThemes = customThemes.filter((t) => t.id !== themeDraft.id);
+  saveCustomThemes();
+  if (activeThemeId === themeDraft.id) setActiveTheme("light");
+  themeDraft = null;
+  renderThemeEditor();
+  renderThemeGrid();
+  showToast("Theme deleted");
+});
+
+// ---------- installing it as an app ----------
+// Chrome fires beforeinstallprompt when it's willing to install; holding onto
+// that event gives a reliable button rather than hunting the browser menu —
+// and when it never fires, that itself says the browser already counts this
+// as installed, which is worth saying out loud.
+let deferredInstall = null;
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || window.matchMedia("(display-mode: minimal-ui)").matches
+    || navigator.standalone === true;
+}
+
+function syncInstallUI() {
+  const btn = $("btn-install-app");
+  const note = $("install-note");
+  if (!btn || !note) return;
+  if (isStandalone()) {
+    btn.classList.add("hidden");
+    note.textContent = "Running as an installed app on this device.";
+  } else if (deferredInstall) {
+    btn.classList.remove("hidden");
+    note.textContent = "";
+  } else {
+    btn.classList.add("hidden");
+    note.textContent = "Your browser isn't offering to install right now, which usually "
+      + "means it already has a copy registered. Remove it from your browser's app list, "
+      + "then reload.";
+  }
+}
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstall = e;
+  syncInstallUI();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstall = null;
+  showToast("Installed");
+  syncInstallUI();
+});
+
+on("btn-install-app", "click", async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  try {
+    await deferredInstall.userChoice;
+  } catch (e) { /* dismissed */ }
+  deferredInstall = null;
+  syncInstallUI();
+});
+
 // ---------- startup ----------
 function init() {
   wireEyeButtons();
   wireSegmented();
+  rebuildTabs();
+  loadThemes();
+  $("theme-btn-icon").innerHTML = paletteIconSvg();
   showAppVersion();
+  syncInstallUI();
   const savedHouseholdId = localStorage.getItem(LS_HOUSEHOLD_ID);
   const savedHouseholdName = localStorage.getItem(LS_HOUSEHOLD_NAME);
   if (savedHouseholdId) {

@@ -1,8 +1,9 @@
 {
+  "id": "choretl-household",
   "name": "Choretl",
   "short_name": "Choretl",
   "description": "Shared household task lists for the people you live with.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

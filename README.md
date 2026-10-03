@@ -183,6 +183,52 @@ for a due-by task you've just done.
 Tasks made before this existed are treated as "due by", so nothing vanishes
 off your list.
 
+## Custom lists
+
+**Edit lists** on the Home tab makes a list that gets a tab of its own. Each
+one has:
+
+- a **name** and an optional **icon** — set an emoji and the tab shows that
+  instead of the name, which saves a lot of room on a phone;
+- a **position**, where 1 sits straight after Home. Left at the top number it
+  simply stays last, so adding another list in front won't shuffle it along;
+- **private to me**, which hides the list, its tasks and anything done on it
+  from everyone else in the household. A work list stays out of your partner's
+  tabs, To-do, Log and Summary entirely;
+- an **owner** for a shared list, so tasks added there start on that person;
+- **include in the Home checklist, Log and Summary** — turn it off to keep a
+  list to its own tab, so work tasks aren't counted alongside the housework;
+- the **filter and sort** the tab opens with.
+
+Lists also appear in the filter sheet beside categories, so you can leave one
+out of any tab — handy for copying a list without your work items in it.
+Deleting a list asks what should happen to its tasks: move them back to the
+main lists, or delete them along with it. Either way your log keeps what was
+already done, still naming the list it came from.
+
+## The activity log
+
+A log entry is written once, when something is ticked off, and records
+everything it needs at that moment: the task, who did it, how long it took,
+which list it came from and what that list was called, and who was allowed to
+see it. Nothing is looked up again afterwards. Renaming a list, making it
+private, or deleting it outright doesn't rewrite anyone's history — and a
+private list's entries never become visible to anyone else, even once the list
+is gone. The one exception is **Undo**, which removes the entry because the
+completion didn't happen.
+
+## Themes
+
+**Edit theme** on the Home tab offers Light, Dark, Miami and Sewer, or your
+own. A custom theme gives you a colour picker for each of the nine colours the
+app paints with, and repaints live as you pick so you can see what you're
+doing. Themes live on the device rather than in the household, since how the
+app looks is a matter of whose phone it is.
+
+A word on "private": the app hides those lists from other profiles, but the
+database rules are open (see the security note above), so it keeps a list out
+of someone's way rather than out of their reach.
+
 ## Checking you're on the latest version
 
 The Home tab shows the running build at the bottom (`v20`, and so on). The app

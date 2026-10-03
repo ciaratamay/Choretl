@@ -17,14 +17,8 @@
 
 <div id="app">
 
-  <header class="tabbar">
-    <button class="tab-btn active" data-tab="home"><span id="tab-home-label">Home</span></button>
-    <button class="tab-btn" data-tab="due" disabled>To-do</button>
-    <button class="tab-btn" data-tab="done" disabled>Done</button>
-    <button class="tab-btn" data-tab="alltasks" disabled>All tasks</button>
-    <button class="tab-btn" data-tab="summary" disabled>Summary</button>
-    <button class="tab-btn" data-tab="log" disabled>Log</button>
-  </header>
+  <!-- Built from JS so custom lists can take their place in the order. -->
+  <header class="tabbar" id="tabbar"></header>
 
   <main class="content">
 
@@ -126,14 +120,22 @@
       <!-- Active: a profile within the household is selected -->
       <div id="home-signed-in" class="hidden">
         <div class="auth-card">
-          <div class="auth-logo">
-            <img class="brand-turtle large" src="icon-192.png" alt="Choretl" />
+          <div class="greeting">
+            <img class="greeting-turtle" src="turtle-wink.png" alt="" aria-hidden="true" />
+            <div class="greeting-words">
+              <span class="greeting-name">Choretl</span>
+              <span class="greeting-line">Hi, I'm Choretl &mdash; your chore-tracking buddy.</span>
+            </div>
           </div>
           <h1 id="household-name-display-2"></h1>
           <p class="sub">Viewing as <strong id="me-badge"></strong> &middot; <span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
           <button class="icon-btn" id="btn-switch-profile">Switch / manage people</button>
           <button class="icon-btn" id="btn-edit-categories">Edit categories</button>
+          <button class="icon-btn" id="btn-edit-lists">Edit lists</button>
+          <button class="icon-btn" id="btn-edit-theme"><span class="btn-icon" id="theme-btn-icon"></span>Edit theme</button>
           <button class="icon-btn" id="btn-share-household">Share household</button>
+          <button class="icon-btn hidden" id="btn-install-app">Install on this device</button>
+          <p class="hint-text install-note" id="install-note"></p>
           <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
           <p class="version-note">Choretl <span id="app-version"></span></p>
         </div>
@@ -168,6 +170,88 @@
           <p class="error-text" id="category-error"></p>
           <div class="category-admin-list" id="category-admin-list"></div>
           <p id="category-list-empty" class="hint-text hidden">No categories yet.</p>
+        </div>
+      </div>
+
+      <!-- Custom lists: each one becomes a tab of its own -->
+      <div id="home-lists" class="hidden">
+        <div class="auth-card">
+          <button class="back-btn" id="btn-back-from-lists">&larr; Back</button>
+          <h1>Lists</h1>
+          <p class="sub">A list gets its own tab. Keep one private and it stays out of everyone else's app.</p>
+          <div class="list-admin" id="list-admin"></div>
+          <p id="list-admin-empty" class="hint-text hidden">No lists yet.</p>
+          <button class="link-btn" id="btn-show-add-list">+ Add a list</button>
+        </div>
+      </div>
+
+      <!-- Add / edit one custom list -->
+      <div id="home-list-edit" class="hidden">
+        <div class="auth-card">
+          <button class="back-btn" id="btn-back-to-lists">&larr; Back</button>
+          <h1 id="list-edit-title">Add a list</h1>
+
+          <div class="modal-row">
+            <div class="field" style="flex:2 1 150px;">
+              <label for="input-list-name">Name</label>
+              <input type="text" id="input-list-name" maxlength="24" autocomplete="off" />
+            </div>
+            <div class="field" style="flex:0 0 90px;">
+              <label for="input-list-emoji">Icon</label>
+              <input type="text" id="input-list-emoji" maxlength="4" autocomplete="off" placeholder="🧰" />
+            </div>
+          </div>
+          <p class="hint-text">An icon shows on the tab instead of the name, which saves a lot of room.</p>
+
+          <div class="field">
+            <label for="input-list-order">Position in the tabs</label>
+            <input type="number" id="input-list-order" min="1" />
+            <p class="hint-text" id="list-order-hint"></p>
+          </div>
+
+          <div class="field">
+            <label class="checkbox-field">
+              <input type="checkbox" id="input-list-private" />
+              <span>Private to me</span>
+            </label>
+            <p class="hint-text">Only you see this list, its tasks, and anything done on it. Leave it off to share it with the household.</p>
+          </div>
+
+          <div class="field" id="wrap-list-owner">
+            <label for="input-list-owner">Owner</label>
+            <select id="input-list-owner"><option value="">No owner</option></select>
+            <p class="hint-text">Tasks added to this list start on them.</p>
+          </div>
+
+          <div class="field">
+            <label class="checkbox-field">
+              <input type="checkbox" id="input-list-summaries" checked />
+              <span>Include in the Home checklist, Log and Summary</span>
+            </label>
+            <p class="hint-text">Turn this off to keep a list to its own tab &mdash; handy for work tasks you don't want counted alongside the housework.</p>
+          </div>
+
+          <div class="modal-row">
+            <div class="field">
+              <label for="input-list-filter">Opens filtered by</label>
+              <select id="input-list-filter"></select>
+            </div>
+            <div class="field">
+              <label for="input-list-sort">Sorted by</label>
+              <select id="input-list-sort">
+                <option value="dueDate">Soonest due</option>
+                <option value="alpha">A&ndash;Z</option>
+                <option value="priority">Priority</option>
+              </select>
+            </div>
+          </div>
+
+          <p class="error-text" id="list-error"></p>
+          <div class="modal-actions" style="margin-top:6px;">
+            <button class="text-btn danger hidden" id="btn-delete-list">Delete list</button>
+            <div style="flex:1"></div>
+            <button class="primary-btn" id="btn-save-list" style="width:auto;">Save</button>
+          </div>
         </div>
       </div>
 
@@ -252,6 +336,26 @@
       </div>
       <div id="summary-body"></div>
       <p class="empty-note hidden" id="summary-empty">Nothing done in this period yet.</p>
+    </section>
+
+    <!-- ========== CUSTOM LIST PANE (one pane serves every list) ========== -->
+    <section id="pane-list" class="pane">
+      <div class="pane-head">
+        <h2 id="list-pane-title"></h2>
+        <div class="pane-head-controls">
+          <select class="filter-select" id="filter-list"></select>
+          <button type="button" class="filter-select cat-btn" id="filter-cat-list">All categories</button>
+          <button type="button" class="filter-select copy-btn" id="copy-list">Copy list</button>
+          <select class="filter-select" id="sort-list">
+            <option value="dueDate">Soonest due</option>
+            <option value="alpha">A&ndash;Z</option>
+            <option value="priority">Priority</option>
+          </select>
+        </div>
+      </div>
+      <p class="pane-note" id="list-pane-note"></p>
+      <ul class="task-list" id="list-custom"></ul>
+      <p class="empty-note hidden" id="list-empty">Nothing on this list yet.</p>
     </section>
 
     <!-- ================= LOG PANE ================= -->
@@ -383,6 +487,11 @@
       <p class="hint-text">Whose task this is by default. Each time it comes around it starts on them &mdash; anyone can still take it in the To-do tab.</p>
     </div>
 
+    <div class="field hidden" id="wrap-task-list">
+      <label for="input-task-list">List</label>
+      <select id="input-task-list"><option value="">Main lists</option></select>
+    </div>
+
     <div class="field">
       <label>Categories</label>
       <div class="chip-picker" id="input-task-categories"></div>
@@ -448,6 +557,60 @@
   </div>
 </div>
 
+<!-- ================= THEME MODAL ================= -->
+<div class="modal-backdrop hidden" id="theme-modal-backdrop">
+  <div class="modal">
+    <h2>Theme</h2>
+    <div class="modal-body">
+      <div class="theme-grid" id="theme-grid"></div>
+
+      <div class="field" id="theme-custom-block" style="margin-top:16px;">
+        <label for="input-theme-name">Name</label>
+        <input type="text" id="input-theme-name" maxlength="24" autocomplete="off" />
+        <p class="hint-text">Pick the colours below. The app repaints as you go.</p>
+        <div class="swatch-grid" id="theme-swatches"></div>
+        <div class="modal-actions" style="margin-top:14px;">
+          <button class="text-btn danger hidden" id="btn-delete-theme">Delete theme</button>
+          <div style="flex:1"></div>
+          <button class="icon-btn" id="btn-reset-theme" style="width:auto;margin:0;">Start from Light</button>
+          <button class="primary-btn" id="btn-save-theme" style="width:auto;">Save theme</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="link-btn" id="btn-new-theme" style="width:auto;">+ New theme</button>
+      <div style="flex:1"></div>
+      <button class="primary-btn" id="btn-close-theme" style="width:auto;">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= DELETE LIST MODAL ================= -->
+<div class="modal-backdrop hidden" id="dellist-modal-backdrop">
+  <div class="modal">
+    <h2 id="dellist-title">Delete list</h2>
+    <div class="modal-body">
+      <p class="hint-text" style="margin-top:0;" id="dellist-sub"></p>
+      <div class="choice-list hidden" id="dellist-choices">
+        <button type="button" class="choice" data-choice="keep">
+          <span class="choice-title">Keep the tasks</span>
+          <span class="choice-note" id="dellist-keep-note"></span>
+        </button>
+        <button type="button" class="choice" data-choice="delete">
+          <span class="choice-title">Delete the tasks too</span>
+          <span class="choice-note" id="dellist-delete-note"></span>
+        </button>
+      </div>
+      <p class="hint-text hidden" id="dellist-history-note"></p>
+    </div>
+    <div class="modal-actions">
+      <button class="icon-btn" id="btn-cancel-dellist">Cancel</button>
+      <div style="flex:1"></div>
+      <button class="primary-btn danger-btn" id="btn-confirm-dellist" style="width:auto;">Delete list</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= SHARE HOUSEHOLD MODAL ================= -->
 <div class="modal-backdrop hidden" id="share-modal-backdrop">
   <div class="modal">
@@ -482,11 +645,19 @@
 <!-- ================= CATEGORY FILTER MODAL ================= -->
 <div class="modal-backdrop hidden" id="catfilter-modal-backdrop">
   <div class="modal">
-    <h2>Filter by category</h2>
+    <h2>Filter</h2>
     <div class="modal-body">
-      <p class="hint-text" style="margin-top:0;">Pick as many as you like &mdash; tasks tagged with any of them will show. This applies to every tab.</p>
-      <div class="chip-picker" id="catfilter-options"></div>
-      <p class="hint-text hidden" id="catfilter-empty">No categories yet &mdash; add some under &ldquo;Edit categories&rdquo; on the Home tab.</p>
+      <div class="field hidden" id="listfilter-field">
+        <label>Lists</label>
+        <div class="chip-picker" id="listfilter-options"></div>
+        <p class="hint-text">Pick none to see everything, or narrow it down &mdash; handy for leaving a work list out of what you copy.</p>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>Categories</label>
+        <div class="chip-picker" id="catfilter-options"></div>
+        <p class="hint-text" id="catfilter-note">Tasks tagged with any you pick will show. This applies to every tab.</p>
+        <p class="hint-text hidden" id="catfilter-empty">No categories yet &mdash; add some under &ldquo;Edit categories&rdquo; on the Home tab.</p>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="text-btn" id="btn-clear-catfilter">Clear</button>

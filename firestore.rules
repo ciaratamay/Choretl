@@ -31,6 +31,12 @@ service cloud.firestore {
       match /categories/{categoryId} {
         allow read, write: if true;
       }
+      // Custom lists. "Private" here means the app hides them from other
+      // profiles in this household — it is not a security boundary, since
+      // these rules are open to anyone with the config (see the note above).
+      match /lists/{listId} {
+        allow read, write: if true;
+      }
     }
   }
 }
