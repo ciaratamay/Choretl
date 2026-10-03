@@ -2,16 +2,9 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // There's no Firebase Auth account in this app anymore — a
-    // household is the whole access boundary, gated by its own
-    // password, which the app checks itself (it hashes the password
-    // you type and compares it to the hash stored on the household
-    // doc). That means these rules are wide open at the database
-    // level: anyone with your Firebase config could read/write
-    // through the API directly, not just through the app. That's the
-    // same trade-off the old per-person profiles already had (they
-    // were world-readable too) — fine for "keep two people's chores
-    // separate," not a substitute for real security.
+    // Open at the database level: the household password is checked by the
+    // app, not by these rules. Fine for keeping two people's chores
+    // straight, not a substitute for real security.
 
     match /households/{householdId} {
       allow read: if true;
@@ -31,9 +24,6 @@ service cloud.firestore {
       match /categories/{categoryId} {
         allow read, write: if true;
       }
-      // Custom lists. "Private" here means the app hides them from other
-      // profiles in this household — it is not a security boundary, since
-      // these rules are open to anyone with the config (see the note above).
       match /lists/{listId} {
         allow read, write: if true;
       }
