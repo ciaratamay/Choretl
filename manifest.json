@@ -1,13 +1,16 @@
 {
   "name": "Choretl",
   "short_name": "Choretl",
+  "description": "Shared household task lists for the people you live with.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#EFEEEA",
-  "theme_color": "#2F6659",
+  "orientation": "portrait",
+  "background_color": "#E7EFF8",
+  "theme_color": "#1E4E85",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

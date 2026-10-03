@@ -435,7 +435,6 @@ function enterHousehold(id, name) {
   localStorage.setItem(LS_HOUSEHOLD_NAME, name);
   $("household-name-display").textContent = name;
   $("household-name-display-2").textContent = name;
-  syncHouseholdHeader();
   pendingAutoSelectProfileId = localStorage.getItem(LS_PROFILE_ID);
   subscribeProfiles();
   subscribeCategories();
@@ -564,22 +563,12 @@ on("btn-close-share", "click", () => setModalOpen("share-modal-backdrop", false)
 on("btn-copy-share", "click", () =>
   copyText(buildInviteText($("input-share-password").value.trim()), "Invite copied"));
 
-// The household name rides along in the header, so it's always visible —
-// it's the name people need when they join.
-function syncHouseholdHeader() {
-  const chip = $("header-household");
-  chip.textContent = householdName || "";
-  chip.classList.toggle("hidden", !householdName);
-  document.body.classList.toggle("in-household", !!householdName);
-}
-
 function leaveHousehold() {
   teardown();
   householdId = null;
   householdName = null;
   currentProfile = null;
   syncIdentityUI();
-  syncHouseholdHeader();
   localStorage.removeItem(LS_HOUSEHOLD_ID);
   localStorage.removeItem(LS_HOUSEHOLD_NAME);
   localStorage.removeItem(LS_PROFILE_ID);
@@ -1279,13 +1268,17 @@ function subscribeTasks() {
 // takeTurns / categoryId. Filling the gaps on the way in means the rest of
 // the app can read them plainly, and the old boolean star becomes "high".
 function normaliseTask(id, raw) {
+  const takeTurns = !!raw.takeTurns;
   return {
     id,
     ...raw,
     priority: typeof raw.priority === "number" ? raw.priority : (raw.starred ? 1 : 0),
-    owner: raw.owner ?? null,
+    // Taking turns and having an owner are mutually exclusive. Tasks saved
+    // before that was true could carry both, so the owner is dropped here
+    // rather than leaving them looking owned forever.
+    owner: takeTurns ? null : (raw.owner ?? null),
     assignedTo: raw.assignedTo ?? null,
-    takeTurns: !!raw.takeTurns,
+    takeTurns,
     estimateMins: typeof raw.estimateMins === "number" ? raw.estimateMins : null,
     // Categories are tags now — a task written before that had a single one.
     categoryIds: Array.isArray(raw.categoryIds)

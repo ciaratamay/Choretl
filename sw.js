@@ -1,4 +1,4 @@
-const CACHE_NAME = "choretl-shell-v18";
+const CACHE_NAME = "choretl-shell-v19";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const SHELL_FILES = [
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
+  "./icon-maskable-512.png",
+  "./icon-apple-180.png",
 ];
 
 self.addEventListener("install", (event) => {

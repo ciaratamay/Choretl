@@ -41,7 +41,7 @@ input, select { font-family: inherit; }
   display: flex;
   align-items: center;
   background: var(--active-tab-color, var(--blue-dark));
-  padding: 0 8px;
+  padding: 0 4px;
   position: sticky;
   top: 0;
   z-index: 20;
@@ -51,18 +51,9 @@ input, select { font-family: inherit; }
 }
 
 @media (max-width: 480px) {
-  .brand-word { display: none; }
-  .brand { padding: 8px 6px 8px 2px; margin-right: 0; }
-  .tab-btn { padding: 16px 10px 13px; font-size: 0.88rem; }
+  .tab-btn { padding: 16px 11px 13px; font-size: 0.88rem; }
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px 8px 4px;
-  margin-right: 4px;
-}
 
 .brand-turtle {
   width: 30px;
@@ -1347,29 +1338,6 @@ body.modal-open { overflow: hidden; }
 
 /* ---------- Household name in the header ---------- */
 
-.household-chip {
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: #fff;
-  background: rgba(255,255,255,0.18);
-  border: 1px solid rgba(255,255,255,0.26);
-  border-radius: 20px;
-  padding: 3px 11px;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* Once you're in a household its name is the more useful label, so it takes
-   the wordmark's place where space is tight. */
-@media (max-width: 680px) {
-  body.in-household .brand-word { display: none; }
-}
-@media (max-width: 480px) {
-  .household-chip { max-width: 112px; font-size: 0.8rem; padding: 3px 9px; }
-}
 
 /* ---------- Copy list ---------- */
 
