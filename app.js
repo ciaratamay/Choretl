@@ -79,12 +79,47 @@ function fmtDue(date, hasTime) {
   return `${dateStr}, ${timeStr}`;
 }
 
+// A task with no estimate still counts for something in the Summary, so
+// totals don't read as zero work.
+const DEFAULT_TASK_MINS = 10;
+
+function fmtMins(total) {
+  const mins = Math.max(0, Math.round(total || 0));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+// The next time this weekday comes round, today included.
+function nextWeekdayDate(weekday, from = new Date()) {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  return addDays(d, (weekday - d.getDay() + 7) % 7);
+}
+
+// The next time this day of the month comes round, today included.
+function nextMonthDayDate(day, from = new Date()) {
+  const today = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const d = new Date(from.getFullYear(), from.getMonth(), Math.min(day, 28));
+  return d < today ? addMonthsKeepDay(d, 1, day) : d;
+}
+
+// Frequencies where the day is already pinned by the weekday or date you
+// picked, so asking for a start date on top of it would just be confusing.
+function freqImpliesDate(type) {
+  return type === "weekly" || type === "custom-weeks" || type === "monthly";
+}
+
 function freqSummary(freq) {
   const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   switch (freq.type) {
     case "once": return "One-off";
     case "daily": return "Every day";
-    case "weekly": return "Every week";
+    case "weekly":
+      return typeof freq.weekday === "number"
+        ? `Every week on ${weekdayNames[freq.weekday]}`
+        : "Every week";
     case "custom-days": return `Every ${freq.intervalDays} days`;
     case "custom-weeks": return `Every ${freq.intervalWeeks} weeks on ${weekdayNames[freq.weekday]}`;
     case "monthly": return `Monthly on the ${freq.monthDay}${ordinal(freq.monthDay)}`;
@@ -1251,6 +1286,7 @@ function normaliseTask(id, raw) {
     owner: raw.owner ?? null,
     assignedTo: raw.assignedTo ?? null,
     takeTurns: !!raw.takeTurns,
+    estimateMins: typeof raw.estimateMins === "number" ? raw.estimateMins : null,
     // Categories are tags now — a task written before that had a single one.
     categoryIds: Array.isArray(raw.categoryIds)
       ? raw.categoryIds
@@ -1514,7 +1550,9 @@ function renderAllTasksRow(task, now) {
 
   const kicker = document.createElement("div");
   kicker.className = "base-kicker";
-  kicker.textContent = freqSummary(task.freq);
+  kicker.textContent = task.estimateMins
+    ? `${freqSummary(task.freq)} · ${fmtMins(task.estimateMins)}`
+    : freqSummary(task.freq);
   appendCategoryChips(kicker, task);
   if (task.takeTurns && task.freq.type !== "once") {
     const turns = document.createElement("span");
@@ -1782,16 +1820,30 @@ function renderSummary() {
     return matchesCategoryFilter({ categoryIds: rowCategories(r) });
   });
 
+  // How long a completion counts for: what was actually entered, else what
+  // the task is estimated at, else a flat default so nothing reads as zero.
+  const minsFor = (r) => {
+    if (typeof r.mins === "number" && r.mins >= 0) return r.mins;
+    if (typeof r.estimateMins === "number" && r.estimateMins > 0) return r.estimateMins;
+    const t = tasksById[r.taskId];
+    if (t && typeof t.estimateMins === "number" && t.estimateMins > 0) return t.estimateMins;
+    return DEFAULT_TASK_MINS;
+  };
+
   // Per person: what they did in the window, plus what's on them right now.
   const byPerson = {};
-  const ensure = (id) => (byPerson[id] = byPerson[id] || { done: 0, titles: {}, open: 0 });
+  const ensure = (id) => (byPerson[id] = byPerson[id] || { done: 0, mins: 0, titles: {}, open: 0 });
   sortedProfileIds.forEach(ensure);
   let skipped = 0;
+  let totalMins = 0;
   rows.forEach((r) => {
     if (r.skipped) { skipped += 1; return; }
     if (!r.doneBy || !profilesCache[r.doneBy]) return;
     const rec = ensure(r.doneBy);
+    const m = minsFor(r);
     rec.done += 1;
+    rec.mins += m;
+    totalMins += m;
     rec.titles[r.taskTitle] = (rec.titles[r.taskTitle] || 0) + 1;
   });
 
@@ -1810,16 +1862,18 @@ function renderSummary() {
   const head = document.createElement("p");
   head.className = "summary-total";
   head.textContent = `${totalDone} task${totalDone === 1 ? "" : "s"} done ${label}`
+    + ` · ${fmtMins(totalMins)} of work`
     + (skipped ? ` · ${skipped} skipped` : "");
   body.appendChild(head);
 
-  // Busiest first — that's the question this tab is really answering.
+  // Ranked by time put in, since that's the "who did what" this answers.
   const ranked = sortedProfileIds.slice().sort((a, b) =>
-    (byPerson[b]?.done || 0) - (byPerson[a]?.done || 0)
+    (byPerson[b]?.mins || 0) - (byPerson[a]?.mins || 0)
+    || (byPerson[b]?.done || 0) - (byPerson[a]?.done || 0)
     || (profilesCache[a].name || "").localeCompare(profilesCache[b].name || ""));
 
   ranked.forEach((id) => {
-    const rec = byPerson[id] || { done: 0, titles: {}, open: 0 };
+    const rec = byPerson[id] || { done: 0, mins: 0, titles: {}, open: 0 };
     const card = document.createElement("div");
     card.className = "summary-card";
     card.style.borderLeftColor = colorForProfile(id);
@@ -1831,11 +1885,11 @@ function renderSummary() {
     name.className = "summary-name";
     name.textContent = profilesCache[id].name;
     top.appendChild(name);
-    const share = totalDone ? Math.round((rec.done / totalDone) * 100) : 0;
+    const share = totalMins ? Math.round((rec.mins / totalMins) * 100) : 0;
     const count = document.createElement("span");
     count.className = "summary-count";
-    count.textContent = totalDone
-      ? `${rec.done} done · ${share}%`
+    count.textContent = totalMins
+      ? `${rec.done} done · ${fmtMins(rec.mins)} · ${share}%`
       : `${rec.done} done`;
     top.appendChild(count);
     card.appendChild(top);
@@ -2055,7 +2109,7 @@ function renderDoneRow(task) {
 // away — that's what makes it drop out of the To-do tab until that next
 // occurrence's appear time — while lastCompletion records what just
 // happened for the Done tab, independent of that next-occurrence cycle.
-async function completeTask(task, byId, skipped) {
+async function completeTask(task, byId, skipped, mins = null) {
   const prevDueAt = task.dueAt;
   const nextDue = advanceDue(task);
 
@@ -2075,6 +2129,11 @@ async function completeTask(task, byId, skipped) {
     doneBy: skipped ? null : byId,
     doneByName: skipped ? null : (profilesCache[byId]?.name || "Someone"),
     skipped: !!skipped,
+    // What it actually took if that was entered, and what it usually takes,
+    // kept here so the Summary still totals correctly if the task is
+    // later edited or deleted.
+    mins: typeof mins === "number" ? mins : null,
+    estimateMins: task.estimateMins ?? null,
     doneAt: serverTimestamp(),
   });
   await updateDoc(taskDoc(task.id), {
@@ -2086,6 +2145,7 @@ async function completeTask(task, byId, skipped) {
       by: skipped ? null : byId,
       at: serverTimestamp(),
       skipped: !!skipped,
+      mins: typeof mins === "number" ? mins : null,
       logId: logRef.id,
     },
   });
@@ -2124,8 +2184,30 @@ function openDoneModal(task) {
   doneModalTaskId = task.id;
   doneModalSelectedId = currentProfile ? currentProfile.id : (sortedProfileIds[0] || null);
   renderDoneModalOptions();
+  // The time field starts folded away — most of the time you just tick it off.
+  $("done-mins-row").classList.add("hidden");
+  $("btn-toggle-done-mins").classList.remove("open");
+  $("btn-toggle-done-mins").querySelector(".plus-sign").textContent = "+";
+  $("input-done-mins").value = "";
+  $("done-mins-hint").textContent = task.estimateMins
+    ? `Usually ${fmtMins(task.estimateMins)}. Leave it and that's what gets counted.`
+    : `Left empty, this counts as ${DEFAULT_TASK_MINS} minutes.`;
   setModalOpen("done-modal-backdrop", true);
 }
+
+on("btn-toggle-done-mins", "click", () => {
+  const row = $("done-mins-row");
+  const nowOpen = row.classList.toggle("hidden") === false;
+  $("btn-toggle-done-mins").classList.toggle("open", nowOpen);
+  $("btn-toggle-done-mins").querySelector(".plus-sign").textContent = nowOpen ? "−" : "+";
+  if (nowOpen) {
+    const task = tasksById[doneModalTaskId];
+    if (task && task.estimateMins != null && $("input-done-mins").value === "") {
+      $("input-done-mins").value = task.estimateMins;
+    }
+    $("input-done-mins").focus();
+  }
+});
 
 function renderDoneModalOptions() {
   const wrap = $("done-options");
@@ -2142,7 +2224,10 @@ function renderDoneModalOptions() {
 
 on("btn-confirm-done", "click", () => {
   const task = tasksById[doneModalTaskId];
-  if (task && doneModalSelectedId) completeTask(task, doneModalSelectedId, false);
+  const typed = $("done-mins-row").classList.contains("hidden")
+    ? "" : $("input-done-mins").value.trim();
+  const mins = typed === "" ? null : Math.max(0, parseInt(typed, 10) || 0);
+  if (task && doneModalSelectedId) completeTask(task, doneModalSelectedId, false, mins);
   closeDoneModal();
 });
 on("btn-cancel-done", "click", () => closeDoneModal());
@@ -2159,21 +2244,42 @@ on("btn-save-task", "click", () => saveTask());
 on("btn-delete-task", "click", () => deleteTask());
 on("input-task-freq", "change", updateFreqRows);
 
+function taskModalFreqType() {
+  return $("input-task-repeats").checked ? $("input-task-freq").value : "once";
+}
+
 function updateFreqRows() {
-  const type = $("input-task-freq").value;
+  const repeats = $("input-task-repeats").checked;
+  const type = taskModalFreqType();
+  // All the repeat machinery stays out of the way until you say it repeats.
+  $("repeat-block").classList.toggle("hidden", !repeats);
   $("row-interval-days").classList.toggle("hidden", type !== "custom-days");
-  $("row-weekday").classList.toggle("hidden", type !== "custom-weeks");
+  $("row-weekday").classList.toggle("hidden", !(type === "weekly" || type === "custom-weeks"));
   $("wrap-interval-weeks").classList.toggle("hidden", type !== "custom-weeks");
   $("row-monthday").classList.toggle("hidden", type !== "monthly");
-  // Taking turns only means anything for something that comes back around.
-  $("row-take-turns").classList.toggle("hidden", type === "once");
+  // "Every week on Saturday" already says which day — no date field needed.
+  $("wrap-task-date").classList.toggle("hidden", freqImpliesDate(type));
+  updateOwnerRow();
 }
+
+// A task that takes turns belongs to whoever's next, not to an owner, so
+// the owner picker goes away and anything already set is cleared.
+function updateOwnerRow() {
+  const turns = $("input-task-repeats").checked && $("input-task-taketurns").checked;
+  $("wrap-task-owner").classList.toggle("hidden", turns);
+  if (turns) $("input-task-owner").value = "";
+}
+
+on("input-task-repeats", "change", updateFreqRows);
+on("input-task-taketurns", "change", updateOwnerRow);
 
 function openAddTaskModal() {
   editingTaskId = null;
   $("task-modal-title").textContent = "Add task";
   $("task-modal-sub").classList.add("hidden");
   $("input-task-title").value = "";
+  // One-off is the default — most things people add are one-offs.
+  $("input-task-repeats").checked = false;
   $("input-task-freq").value = "daily";
   $("input-interval-n").value = 2;
   $("input-interval-weeks").value = 2;
@@ -2183,6 +2289,8 @@ function openAddTaskModal() {
   $("input-task-time").value = "";
   $("input-task-owner").value = "";
   $("input-task-taketurns").checked = false;
+  $("input-task-estimate").value = "";
+  $("task-advanced").open = false;
   // If you're filtering by a category, a new task starts tagged with it.
   taskModalCategories.clear();
   categoryFilter.forEach((id) => { if (id !== "none") taskModalCategories.add(id); });
@@ -2200,18 +2308,23 @@ function openEditTaskModal(task) {
   $("task-modal-title").textContent = "Edit task";
   $("task-modal-sub").classList.toggle("hidden", activeTab === "alltasks");
   $("input-task-title").value = task.title;
-  $("input-task-freq").value = task.freq.type;
+  const repeats = task.freq.type !== "once";
+  $("input-task-repeats").checked = repeats;
+  $("input-task-freq").value = repeats ? task.freq.type : "daily";
   $("input-interval-n").value = task.freq.intervalDays || 2;
   $("input-interval-weeks").value = task.freq.intervalWeeks || 2;
-  $("input-weekday").value = String(task.freq.weekday ?? new Date().getDay());
-  $("input-monthday").value = task.freq.monthDay || 1;
   const d = task.dueAt.toDate();
+  // Older weekly tasks had no weekday of their own — take it from the date.
+  $("input-weekday").value = String(task.freq.weekday ?? d.getDay());
+  $("input-monthday").value = task.freq.monthDay || d.getDate();
   $("input-task-date").value = localDateStr(d);
   $("input-task-time").value = task.hasTime
     ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
     : "";
   $("input-task-owner").value = task.owner || "";
   $("input-task-taketurns").checked = !!task.takeTurns;
+  $("input-task-estimate").value = task.estimateMins == null ? "" : task.estimateMins;
+  $("task-advanced").open = task.estimateMins != null;
   taskModalCategories.clear();
   (task.categoryIds || []).forEach((id) => { if (categoriesCache[id]) taskModalCategories.add(id); });
   renderTaskCategoryChips();
@@ -2231,23 +2344,48 @@ async function saveTask() {
   err.textContent = "";
   if (!title) { err.textContent = "Give the task a name."; return; }
 
-  const type = $("input-task-freq").value;
+  const type = taskModalFreqType();
   let freq = { type };
   if (type === "custom-days") freq.intervalDays = Math.max(1, parseInt($("input-interval-n").value, 10) || 1);
+  if (type === "weekly") freq.weekday = parseInt($("input-weekday").value, 10);
   if (type === "custom-weeks") {
     freq.intervalWeeks = Math.max(1, parseInt($("input-interval-weeks").value, 10) || 1);
     freq.weekday = parseInt($("input-weekday").value, 10);
   }
   if (type === "monthly") freq.monthDay = Math.min(28, Math.max(1, parseInt($("input-monthday").value, 10) || 1));
 
-  const dateStr = $("input-task-date").value;
-  if (!dateStr) { err.textContent = "Pick a due date."; return; }
+  // Where the due date comes from: the weekday or day-of-month when one of
+  // those governs, otherwise the date field. On an edit that didn't change
+  // the schedule, the occurrence already in flight is left where it is.
+  const existing = editingTaskId ? tasksById[editingTaskId] : null;
+  const sameFreq = existing && JSON.stringify(existing.freq) === JSON.stringify(freq);
+  let dueDate;
+  if (freqImpliesDate(type)) {
+    if (sameFreq) dueDate = existing.dueAt.toDate();
+    else if (type === "monthly") dueDate = nextMonthDayDate(freq.monthDay);
+    else dueDate = nextWeekdayDate(freq.weekday);
+  } else {
+    const dateStr = $("input-task-date").value;
+    if (!dateStr) { err.textContent = "Pick a due date."; return; }
+    dueDate = new Date(`${dateStr}T00:00`);
+  }
+
   const timeStr = $("input-task-time").value;
   const hasTime = !!timeStr;
-  const dueDate = hasTime ? new Date(`${dateStr}T${timeStr}`) : new Date(`${dateStr}T00:00`);
-  const owner = $("input-task-owner").value || null;
+  dueDate = new Date(dueDate);
+  if (hasTime) {
+    const [hh, mm] = timeStr.split(":").map((n) => parseInt(n, 10));
+    dueDate.setHours(hh || 0, mm || 0, 0, 0);
+  } else {
+    dueDate.setHours(0, 0, 0, 0);
+  }
+
   const takeTurns = type !== "once" && $("input-task-taketurns").checked;
+  // Taking turns and having an owner are mutually exclusive.
+  const owner = takeTurns ? null : ($("input-task-owner").value || null);
   const categoryIds = [...taskModalCategories];
+  const estimateRaw = $("input-task-estimate").value.trim();
+  const estimateMins = estimateRaw === "" ? null : Math.max(0, parseInt(estimateRaw, 10) || 0);
 
   $("btn-save-task").disabled = true;
   try {
@@ -2255,7 +2393,7 @@ async function saveTask() {
       const existing = tasksById[editingTaskId];
       const patch = {
         title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
-        owner, takeTurns, categoryIds,
+        owner, takeTurns, categoryIds, estimateMins,
       };
       // Changing the owner carries the currently-open occurrence with it,
       // unless somebody has already taken that occurrence off the owner.
@@ -2267,7 +2405,7 @@ async function saveTask() {
     } else {
       await addDoc(tasksCol(), {
         title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
-        owner, assignedTo: owner, takeTurns, categoryIds, priority: 0,
+        owner, assignedTo: owner, takeTurns, categoryIds, estimateMins, priority: 0,
         createdBy: currentProfile.id, createdAt: serverTimestamp(),
       });
     }

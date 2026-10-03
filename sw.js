@@ -1,4 +1,4 @@
-const CACHE_NAME = "choretl-shell-v17";
+const CACHE_NAME = "choretl-shell-v18";
 const SHELL_FILES = [
   "./",
   "./index.html",

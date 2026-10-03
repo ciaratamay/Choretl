@@ -284,52 +284,68 @@
     </div>
 
     <div class="field">
-      <label for="input-task-freq">Repeats</label>
-      <select id="input-task-freq">
-        <option value="once">One-off (no repeat)</option>
-        <option value="daily">Daily</option>
-        <option value="weekly">Weekly</option>
-        <option value="custom-days">Every N days</option>
-        <option value="custom-weeks">Every N weeks on a day</option>
-        <option value="monthly">Monthly on a date</option>
-      </select>
+      <label class="checkbox-field">
+        <input type="checkbox" id="input-task-repeats" />
+        <span>This repeats</span>
+      </label>
     </div>
 
-    <div class="modal-row hidden" id="row-interval-days">
+    <div class="repeat-block hidden" id="repeat-block">
       <div class="field">
-        <label for="input-interval-n">Every how many days</label>
-        <input type="number" id="input-interval-n" min="1" value="2" />
-      </div>
-    </div>
-
-    <div class="modal-row hidden" id="row-weekday">
-      <div class="field">
-        <label for="input-weekday">Day of week</label>
-        <select id="input-weekday">
-          <option value="0">Sunday</option>
-          <option value="1">Monday</option>
-          <option value="2">Tuesday</option>
-          <option value="3">Wednesday</option>
-          <option value="4">Thursday</option>
-          <option value="5">Friday</option>
-          <option value="6">Saturday</option>
+        <label for="input-task-freq">How often</label>
+        <select id="input-task-freq">
+          <option value="daily">Every day</option>
+          <option value="weekly">Every week on a day</option>
+          <option value="custom-days">Every N days</option>
+          <option value="custom-weeks">Every N weeks on a day</option>
+          <option value="monthly">Monthly on a date</option>
         </select>
       </div>
-      <div class="field hidden" id="wrap-interval-weeks">
-        <label for="input-interval-weeks">Every how many weeks</label>
-        <input type="number" id="input-interval-weeks" min="1" value="2" />
-      </div>
-    </div>
 
-    <div class="modal-row hidden" id="row-monthday">
-      <div class="field">
-        <label for="input-monthday">Day of month (1&ndash;28)</label>
-        <input type="number" id="input-monthday" min="1" max="28" value="1" />
+      <div class="modal-row hidden" id="row-interval-days">
+        <div class="field">
+          <label for="input-interval-n">Every how many days</label>
+          <input type="number" id="input-interval-n" min="1" value="2" />
+        </div>
+      </div>
+
+      <div class="modal-row hidden" id="row-weekday">
+        <div class="field">
+          <label for="input-weekday">Day of week</label>
+          <select id="input-weekday">
+            <option value="0">Sunday</option>
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+          </select>
+        </div>
+        <div class="field hidden" id="wrap-interval-weeks">
+          <label for="input-interval-weeks">Every how many weeks</label>
+          <input type="number" id="input-interval-weeks" min="1" value="2" />
+        </div>
+      </div>
+
+      <div class="modal-row hidden" id="row-monthday">
+        <div class="field">
+          <label for="input-monthday">Day of month (1&ndash;28)</label>
+          <input type="number" id="input-monthday" min="1" max="28" value="1" />
+        </div>
+      </div>
+
+      <div class="field" id="row-take-turns">
+        <label class="checkbox-field">
+          <input type="checkbox" id="input-task-taketurns" />
+          <span>Take turns</span>
+        </label>
+        <p class="hint-text">Each repeat goes to the next person in the household after whoever did it last. A task that takes turns has no owner.</p>
       </div>
     </div>
 
     <div class="modal-row">
-      <div class="field">
+      <div class="field" id="wrap-task-date">
         <label for="input-task-date">First/next due date</label>
         <input type="date" id="input-task-date" />
       </div>
@@ -339,20 +355,12 @@
       </div>
     </div>
 
-    <div class="field">
+    <div class="field" id="wrap-task-owner">
       <label for="input-task-owner">Owner</label>
       <select id="input-task-owner">
         <option value="">No owner</option>
       </select>
       <p class="hint-text">Whose task this is by default. Each time it comes around it starts on them &mdash; anyone can still take it in the To-do tab.</p>
-    </div>
-
-    <div class="field hidden" id="row-take-turns">
-      <label class="checkbox-field">
-        <input type="checkbox" id="input-task-taketurns" />
-        <span>Take turns</span>
-      </label>
-      <p class="hint-text">Each repeat goes to the next person in the household after whoever did it last, instead of back to the owner.</p>
     </div>
 
     <div class="field">
@@ -361,6 +369,15 @@
       <p class="hint-text" id="category-empty-hint">Add categories from the Home tab.</p>
       <p class="hint-text" id="category-multi-hint">Tap to tag this task &mdash; it can carry as many as you like.</p>
     </div>
+
+    <details class="advanced" id="task-advanced">
+      <summary>Advanced</summary>
+      <div class="field" style="margin-bottom:0;">
+        <label for="input-task-estimate">How long it takes (minutes)</label>
+        <input type="number" id="input-task-estimate" min="0" step="5" placeholder="10" />
+        <p class="hint-text">The Summary tab adds these up to show how much work each person did. Left empty, a task counts as 10 minutes.</p>
+      </div>
+    </details>
 
     <p class="error-text" id="task-modal-error"></p>
     </div>
@@ -394,6 +411,14 @@
     <h2>Who did this?</h2>
     <div class="modal-body">
       <div class="profile-list" id="done-options"></div>
+      <button type="button" class="plus-toggle" id="btn-toggle-done-mins">
+        <span class="plus-sign">+</span><span>Time taken</span>
+      </button>
+      <div class="field hidden" id="done-mins-row" style="margin-top:10px;margin-bottom:0;">
+        <label for="input-done-mins">Minutes it actually took</label>
+        <input type="number" id="input-done-mins" min="0" step="5" />
+        <p class="hint-text" id="done-mins-hint"></p>
+      </div>
     </div>
     <div class="modal-actions">
       <div style="flex:1"></div>

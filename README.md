@@ -94,7 +94,9 @@ the tabs split along that line:
 - **All tasks** is the tasks themselves. Each one has an **owner** — whose job
   it is by default — and the card is tinted in that person's colour. Turn on
   **take turns** if a repeating task should rotate rather than always land on
-  the owner. The right-hand side of each card shows where its current
+  the owner — a task that takes turns has no owner, so that picker goes away
+  when you switch it on. Under **Advanced** you can say how long a task takes,
+  which is what the Summary tab adds up. The right-hand side of each card shows where its current
   occurrence stands: the due date, the colour of whoever it's on, and two
   buttons — tick it off, or hand it to someone else. When nothing's open (a
   finished one-off, or a repeat waiting its turn) that side greys out and
@@ -146,7 +148,17 @@ undoes it, log entry and all. It shares its person filter with the To-do tab,
 since both are asking the same question.
 
 **Summary** answers who's actually doing what, over this week, this month, a
-rolling 7 or 30 days, or all time.
+rolling 7 or 30 days, or all time — counting time rather than just tasks, so
+one person doing three five-minute jobs doesn't outrank another doing the
+weekly clean. A completion counts for the minutes entered when it was ticked
+off, or the task's estimate, or 10 minutes if neither was ever set. Marking
+something done has a **+ Time taken** fold-out if you want to record what it
+really took.
+
+A new task is a **one-off** unless you tick "This repeats", which is when the
+scheduling options appear. Where the schedule already pins the day — every
+week on a Saturday, monthly on the 12th — the due-date field disappears,
+since the weekday or date is what decides it.
 
 ## How the sync actually works
 
