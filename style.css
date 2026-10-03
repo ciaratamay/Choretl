@@ -110,6 +110,8 @@ input, select { font-family: inherit; }
   padding: 16px 16px 13px;
   border-bottom: 3px solid transparent;
   letter-spacing: 0.01em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tab-btn.active {
@@ -139,11 +141,16 @@ input, select { font-family: inherit; }
 .pane { display: none; }
 .pane.active { display: block; }
 
+/* Heads wrap rather than pushing the page sideways — on a narrow screen the
+   controls drop onto their own line and stack among themselves. */
 .pane-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .pane-head h2 {
@@ -156,7 +163,10 @@ input, select { font-family: inherit; }
 
 .pane-head-controls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
 }
 
 /* ---------- Home / auth card ---------- */
@@ -443,6 +453,8 @@ input, select { font-family: inherit; }
   background: #fff;
   color: var(--ink-soft);
   font-weight: 500;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ---------- Task list ---------- */
@@ -588,38 +600,67 @@ input, select { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 20px calc(20px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
   z-index: 100;
 }
 
+/* The title and the action buttons stay put; only the fields between them
+   scroll. dvh keeps that honest on phones, where a vh-sized box runs on
+   under the browser's own toolbars. */
 .modal {
   background: #fff;
   border-radius: var(--radius);
-  padding: 26px;
   width: 100%;
   max-width: 420px;
   max-height: 90vh;
-  overflow-y: auto;
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal h2 {
   font-size: 1.15rem;
   font-weight: 800;
-  margin: 0 0 18px;
+  margin: 0;
+  padding: 22px 26px 14px;
   color: var(--blue-dark-2);
+  flex-shrink: 0;
 }
 
-.modal-row { display: flex; gap: 10px; }
-.modal-row .field { flex: 1; }
+.modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 26px;
+}
+.modal-body > .field:last-child { margin-bottom: 0; }
+
+.modal-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.modal-row .field { flex: 1 1 140px; min-width: 0; }
 
 .modal-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 18px;
+  flex-wrap: wrap;
   gap: 10px;
+  margin-top: 18px;
 }
 .modal-actions .primary-btn { width: auto; padding: 10px 20px; }
+
+/* Inside a modal the actions are a pinned footer rather than the last
+   thing in the scroll. */
+.modal > .modal-actions {
+  margin-top: 0;
+  padding: 14px 26px 18px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  flex-shrink: 0;
+}
+
+body.modal-open { overflow: hidden; }
 
 .toast {
   position: fixed;
@@ -845,7 +886,7 @@ input, select { font-family: inherit; }
   gap: 8px;
   align-items: stretch;
 }
-.inline-add input { flex: 1; }
+.inline-add input { flex: 1 1 auto; min-width: 0; }
 .inline-add .primary-btn {
   width: auto;
   margin: 0;
@@ -866,7 +907,10 @@ input, select { font-family: inherit; }
   gap: 8px;
 }
 .category-admin-row input {
-  flex: 1;
+  flex: 1 1 auto;
+  /* without this the input refuses to shrink past its intrinsic width and
+     shoves the row off the side of a narrow phone */
+  min-width: 0;
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -968,4 +1012,84 @@ input, select { font-family: inherit; }
   font-size: 0.84rem;
   color: var(--grey-done);
   font-style: italic;
+}
+
+/* ---------- Safe areas (notches, home indicators) ---------- */
+
+.tabbar {
+  padding-top: env(safe-area-inset-top);
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+}
+
+.content {
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: calc(90px + env(safe-area-inset-bottom));
+}
+
+.fab {
+  right: max(22px, calc(16px + env(safe-area-inset-right)));
+  bottom: calc(22px + env(safe-area-inset-bottom));
+}
+
+.toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 560px) {
+  /* The head stacks: title on one line, controls wrapping on the next,
+     each select sharing the width rather than running off the side. */
+  .pane-head { align-items: flex-start; }
+  .pane-head-controls {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  .pane-head-controls .filter-select { flex: 1 1 128px; }
+  .cat-select { max-width: none; }
+
+  /* 16px is the threshold below which iOS zooms the page on focus. */
+  .field input,
+  .field select,
+  .filter-select,
+  .search-input,
+  .category-admin-row input {
+    font-size: 16px;
+  }
+
+  .content { padding-top: 16px; }
+
+  .auth-card {
+    padding: 22px 18px;
+    margin-top: 14px;
+  }
+  .auth-card h1 { font-size: 1.35rem; }
+  .brand-turtle.large { width: 58px; height: 58px; }
+  .auth-logo .brand-word { font-size: 1.7rem; }
+
+  .modal-backdrop { padding: 12px calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); }
+  .modal { max-height: 92dvh; }
+  .modal h2 { padding: 18px 18px 12px; }
+  .modal-body { padding: 0 18px; }
+  .modal > .modal-actions { padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); }
+
+  .task-row { padding: 12px 13px; }
+  .instance-row { padding: 11px 13px 12px 11px; }
+  .base-card { padding: 12px 13px 13px; }
+
+  /* Comfortable thumb targets for the inline row actions. */
+  .text-btn { padding: 6px 2px; }
+  .star-btn { padding: 4px 2px; }
+  .done-btn, .skip-btn { padding: 7px 14px; }
+
+  .inline-add { flex-wrap: wrap; }
+  .inline-add input { flex: 1 1 130px; min-width: 0; }
+
+  .summary-card { padding: 12px 13px 13px; }
+}
+
+/* Very narrow phones — let the two-up date/time row break apart. */
+@media (max-width: 360px) {
+  .modal-row .field { flex: 1 1 100%; }
+  .fab { padding: 12px 18px; font-size: 0.9rem; }
 }

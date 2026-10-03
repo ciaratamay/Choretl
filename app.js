@@ -266,12 +266,33 @@ function wireSegmented() {
 }
 
 // ---------- home-pane step switching ----------
+let currentHomeStep = null;
+
 function showHomeStep(step) {
   $("home-no-household").classList.toggle("hidden", step !== "gate");
   $("home-pick-profile").classList.toggle("hidden", step !== "profiles");
   $("home-step-profile").classList.toggle("hidden", step !== "profile-edit");
   $("home-signed-in").classList.toggle("hidden", step !== "active");
   $("home-categories").classList.toggle("hidden", step !== "categories");
+  // Only on a real step change — a background sync re-asserting the same
+  // step shouldn't yank the page out from under anyone mid-scroll.
+  if (step !== currentHomeStep) {
+    currentHomeStep = step;
+    if (activeTab === "home") window.scrollTo(0, 0);
+  }
+}
+
+// Modals sit over the page, so lock the body while one is open — otherwise
+// the list behind scrolls under your finger on a phone.
+function setModalOpen(backdropId, open) {
+  const backdrop = $(backdropId);
+  backdrop.classList.toggle("hidden", !open);
+  if (open) {
+    const body = backdrop.querySelector(".modal-body");
+    if (body) body.scrollTop = 0;
+  }
+  document.body.classList.toggle("modal-open",
+    document.querySelectorAll(".modal-backdrop:not(.hidden)").length > 0);
 }
 
 // ---------- create / join household ----------
@@ -790,6 +811,20 @@ function switchTab(tab) {
   document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("active", p.id === `pane-${tab}`));
   $("btn-add-task").classList.toggle("hidden",
     !currentProfile || tab === "home" || tab === "log" || tab === "summary");
+  // A new tab always starts at the top, however far down the last one was.
+  window.scrollTo(0, 0);
+  centreActiveTab();
+}
+
+// The tab bar scrolls sideways on a narrow screen, so keep whichever tab
+// you're on in view instead of off the edge.
+function centreActiveTab() {
+  const bar = document.querySelector(".tabbar");
+  const btn = bar && bar.querySelector(".tab-btn.active");
+  if (!bar || !btn) return;
+  if (bar.scrollWidth <= bar.clientWidth) return;
+  const target = btn.offsetLeft - (bar.clientWidth - btn.offsetWidth) / 2;
+  bar.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
 }
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -899,7 +934,7 @@ function openAssignModal(task, mode = "assign") {
     wrap.appendChild(b);
   });
 
-  $("assign-modal-backdrop").classList.remove("hidden");
+  setModalOpen("assign-modal-backdrop", true);
 }
 
 function commitAssign(idOrNull) {
@@ -918,7 +953,7 @@ function commitAssign(idOrNull) {
 }
 
 function closeAssignModal() {
-  $("assign-modal-backdrop").classList.add("hidden");
+  setModalOpen("assign-modal-backdrop", false);
   assignModalTaskId = null;
 }
 
@@ -1558,7 +1593,7 @@ function openDoneModal(task) {
   doneModalTaskId = task.id;
   doneModalSelectedId = currentProfile ? currentProfile.id : (sortedProfileIds[0] || null);
   renderDoneModalOptions();
-  $("done-modal-backdrop").classList.remove("hidden");
+  setModalOpen("done-modal-backdrop", true);
 }
 
 function renderDoneModalOptions() {
@@ -1582,7 +1617,7 @@ on("btn-confirm-done", "click", () => {
 on("btn-cancel-done", "click", () => closeDoneModal());
 
 function closeDoneModal() {
-  $("done-modal-backdrop").classList.add("hidden");
+  setModalOpen("done-modal-backdrop", false);
   doneModalTaskId = null;
 }
 
@@ -1621,7 +1656,7 @@ function openAddTaskModal() {
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.add("hidden");
   updateFreqRows();
-  $("task-modal-backdrop").classList.remove("hidden");
+  setModalOpen("task-modal-backdrop", true);
 }
 
 // Editing always edits the base task, wherever you opened it from — so from
@@ -1647,11 +1682,11 @@ function openEditTaskModal(task) {
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.remove("hidden");
   updateFreqRows();
-  $("task-modal-backdrop").classList.remove("hidden");
+  setModalOpen("task-modal-backdrop", true);
 }
 
 function closeTaskModal() {
-  $("task-modal-backdrop").classList.add("hidden");
+  setModalOpen("task-modal-backdrop", false);
 }
 
 async function saveTask() {

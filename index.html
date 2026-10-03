@@ -256,6 +256,8 @@
 <div class="modal-backdrop hidden" id="task-modal-backdrop">
   <div class="modal">
     <h2 id="task-modal-title">Add task</h2>
+
+    <div class="modal-body">
     <p class="modal-sub hidden" id="task-modal-sub">Editing base task &mdash; this changes the task itself and every time it comes around.</p>
 
     <div class="field">
@@ -344,6 +346,7 @@
     </div>
 
     <p class="error-text" id="task-modal-error"></p>
+    </div>
 
     <div class="modal-actions">
       <button class="text-btn danger hidden" id="btn-delete-task">Delete task</button>
@@ -358,7 +361,9 @@
 <div class="modal-backdrop hidden" id="assign-modal-backdrop">
   <div class="modal">
     <h2 id="assign-modal-title">Assign to</h2>
-    <div class="profile-list" id="assign-options"></div>
+    <div class="modal-body">
+      <div class="profile-list" id="assign-options"></div>
+    </div>
     <div class="modal-actions">
       <div style="flex:1"></div>
       <button class="icon-btn" id="btn-cancel-assign">Cancel</button>
@@ -370,7 +375,9 @@
 <div class="modal-backdrop hidden" id="done-modal-backdrop">
   <div class="modal">
     <h2>Who did this?</h2>
-    <div class="profile-list" id="done-options"></div>
+    <div class="modal-body">
+      <div class="profile-list" id="done-options"></div>
+    </div>
     <div class="modal-actions">
       <div style="flex:1"></div>
       <button class="icon-btn" id="btn-cancel-done">Cancel</button>
