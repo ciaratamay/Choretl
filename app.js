@@ -170,6 +170,10 @@ function checkIconSvg() {
   return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>`;
 }
 
+function crossIconSvg() {
+  return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>`;
+}
+
 function personIconSvg() {
   return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="6.6" r="3.2"/><path d="M3.9 17c0-3.2 2.7-5.3 6.1-5.3s6.1 2.1 6.1 5.3"/></svg>`;
 }
@@ -435,7 +439,7 @@ function buildInviteText(password) {
     "",
     "* To install on Android, open the browser menu (top right) and choose “Install app”. On iPhone, tap Share then “Add to Home Screen”.",
     `* Join my household called “${householdName || ""}”`,
-    `* Enter password - ${password || "(ask me)"}`,
+    `* Enter password - ${password || "(I'll send this separately)"}`,
   ].join("\n");
 }
 
@@ -443,38 +447,87 @@ function refreshInvitePreview() {
   $("share-preview").value = buildInviteText($("input-share-password").value.trim());
 }
 
-on("btn-share-household", "click", () => {
-  const saved = localStorage.getItem(LS_HOUSEHOLD_PASSWORD) || "";
-  $("input-share-password").value = saved;
-  $("share-password-note").textContent = saved
-    ? "Saved on this device only — never uploaded."
-    : "This device doesn't have the password saved. Type it in to include it.";
+// Read once when the share sheet opens, so "Check password" and "View hint"
+// both answer instantly instead of hitting the network on every tap.
+let shareHouseholdData = null;
+
+on("btn-share-household", "click", async () => {
+  $("input-share-password").value = localStorage.getItem(LS_HOUSEHOLD_PASSWORD) || "";
+  clearShareChecks();
   refreshInvitePreview();
   setModalOpen("share-modal-backdrop", true);
+  shareHouseholdData = null;
+  try {
+    const snap = await getDoc(hhDoc());
+    if (snap.exists()) shareHouseholdData = snap.data();
+  } catch (e) {
+    // Offline — the buttons say so if they're used.
+  }
 });
 
-on("input-share-password", "input", refreshInvitePreview);
-on("btn-close-share", "click", () => setModalOpen("share-modal-backdrop", false));
+function clearShareChecks() {
+  const r = $("share-password-result");
+  r.className = "pw-result hidden";
+  r.innerHTML = "";
+  $("share-hint-display").classList.add("hidden");
+}
 
-on("btn-copy-share", "click", async () => {
-  const typed = $("input-share-password").value.trim();
-  // If they filled it in by hand and it's right, remember it for next time.
-  if (typed && typed !== localStorage.getItem(LS_HOUSEHOLD_PASSWORD)) {
+function showPasswordResult(state, message) {
+  const r = $("share-password-result");
+  r.className = `pw-result ${state}`;
+  r.innerHTML = state === "ok" ? checkIconSvg() : (state === "bad" ? crossIconSvg() : "");
+  const span = document.createElement("span");
+  span.textContent = message;
+  r.appendChild(span);
+}
+
+on("input-share-password", "input", () => {
+  // A verdict about the old text would be misleading next to new text.
+  clearShareChecks();
+  refreshInvitePreview();
+});
+
+on("btn-check-share-password", "click", async () => {
+  const typed = $("input-share-password").value;
+  if (!typed) { showPasswordResult("neutral", "Nothing entered to check."); return; }
+  if (!shareHouseholdData) {
     try {
       const snap = await getDoc(hhDoc());
-      const hash = await sha256Hex(`${householdId}:${typed}`);
-      if (snap.exists() && hash === snap.data().passwordHash) {
-        localStorage.setItem(LS_HOUSEHOLD_PASSWORD, typed);
-        $("share-password-note").textContent = "Saved on this device only — never uploaded.";
-      } else {
-        $("share-password-note").textContent = "That doesn't match this household's password — copying it anyway.";
-      }
-    } catch (e) {
-      // Offline: copy what they typed and don't make a fuss about it.
-    }
+      if (snap.exists()) shareHouseholdData = snap.data();
+    } catch (e) { /* handled below */ }
   }
-  await copyText(buildInviteText(typed), "Invite copied");
+  if (!shareHouseholdData) {
+    showPasswordResult("neutral", "Couldn't check right now — no connection.");
+    return;
+  }
+  const hash = await sha256Hex(`${householdId}:${typed}`);
+  if (hash === shareHouseholdData.passwordHash) {
+    localStorage.setItem(LS_HOUSEHOLD_PASSWORD, typed);
+    showPasswordResult("ok", "Password is correct");
+  } else {
+    showPasswordResult("bad", "Password is wrong");
+  }
 });
+
+on("btn-show-share-hint", "click", async () => {
+  if (!shareHouseholdData) {
+    try {
+      const snap = await getDoc(hhDoc());
+      if (snap.exists()) shareHouseholdData = snap.data();
+    } catch (e) { /* handled below */ }
+  }
+  const h = $("share-hint-display");
+  if (!shareHouseholdData) h.textContent = "Couldn't load the hint right now — no connection.";
+  else if (shareHouseholdData.hint) h.textContent = `Hint: ${shareHouseholdData.hint}`;
+  else h.textContent = "No hint was set for this household.";
+  h.classList.remove("hidden");
+});
+
+on("btn-close-share", "click", () => setModalOpen("share-modal-backdrop", false));
+
+// Copies exactly what's in the box — checking it is a separate, deliberate step.
+on("btn-copy-share", "click", () =>
+  copyText(buildInviteText($("input-share-password").value.trim()), "Invite copied"));
 
 // The household name rides along in the header, so it's always visible —
 // it's the name people need when they join.

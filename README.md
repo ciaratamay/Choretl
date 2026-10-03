@@ -105,8 +105,31 @@ the tabs split along that line:
   (or to the next person in line, if it takes turns). Hitting **Edit** on one
   opens the task itself, and says so.
 
-**Priority** is the star, tapped up through three steps: outline (normal) →
-yellow (high) → bigger yellow (highest). Sort by it in either tab.
+**Priority** is the star, tapped up through four steps: grey outline (normal)
+→ thick yellow outline (high) → filled yellow (higher) → a red exclamation
+(highest), which also puts a red outline round the card. Every step is drawn
+in the same size box, so tapping through never shifts the text beside it. Sort
+by it in either tab.
+
+**Copy list** sits beside the filters on To-do, Done, All tasks and the Home
+checklist. It copies exactly what's on screen — same filters, same sort — as a
+heading plus plain task names, nothing else, so you can paste someone their
+list straight into a message:
+
+```
+My tasks in Garden, Home
+- Wash floor
+- Plant bulbs
+```
+
+**Share household** on the Home tab copies a ready-made invite: the link to
+this app, how to install it, your household name and its password. The
+password lives in that device's own browser storage so the invite can include
+it — it is never uploaded, and Firestore still only ever holds a hash. If a
+device doesn't have it saved (you joined before this existed, or cleared your
+browser data) just type it into the box and it'll be remembered next time.
+Anyone with that invite can read and change everything in the household, so
+send it to the people you mean to.
 
 **Categories** work like tags — garden, children, car — and a task can carry
 as many as suit it. Make and rename them under **Edit categories** on the Home

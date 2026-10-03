@@ -415,7 +415,13 @@
           <input type="password" id="input-share-password" autocomplete="off" />
           <button type="button" class="eye-btn" data-target="input-share-password" aria-label="Show password"></button>
         </div>
-        <p class="hint-text" id="share-password-note"></p>
+        <p class="hint-text">Enter your password to share it in the text if you like, or leave it empty and share it separately. This field shares exactly what you type &mdash; if you type it wrong, you'll be sharing the wrong password. Anything saved here stays in this browser and is never uploaded.</p>
+        <div class="share-pw-actions">
+          <button type="button" class="icon-btn" id="btn-check-share-password">Check password</button>
+          <button type="button" class="icon-btn" id="btn-show-share-hint">View hint</button>
+        </div>
+        <p class="pw-result hidden" id="share-password-result"></p>
+        <p class="hint-text hidden" id="share-hint-display"></p>
       </div>
       <label for="share-preview">Invite</label>
       <textarea id="share-preview" class="share-preview" rows="9" readonly></textarea>

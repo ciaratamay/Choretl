@@ -1402,3 +1402,32 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 560px) {
   .share-preview { font-size: 16px; }
 }
+
+/* ---------- Share sheet: check password / view hint ---------- */
+
+.share-pw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.share-pw-actions .icon-btn {
+  width: auto;
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.pw-result {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 9px 0 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+.pw-result svg { flex-shrink: 0; }
+.pw-result.ok { color: #1F8A66; }
+.pw-result.bad { color: var(--danger); }
+.pw-result.neutral { color: var(--ink-soft); font-weight: 500; }
