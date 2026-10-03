@@ -1464,3 +1464,32 @@ body.modal-open { overflow: hidden; }
   flex-shrink: 0;
 }
 .plus-toggle.open .plus-sign { background: var(--blue-dark); color: #fff; }
+
+/* ---------- "Due by" overdue: a nudge, not an alarm ---------- */
+
+.task-row.overdue-soft {
+  opacity: 1;
+  border-color: #E3C77F;
+  background: #FFFBF0;
+}
+.check-row.overdue-soft { background: #FFFBF0; }
+.check-row.overdue-soft .check-meta { color: #8A6714; font-weight: 600; }
+
+.status-badge.overdue-soft { background: #FBEFCB; color: #8A6714; }
+
+.base-instance.overdue-soft .inst-when { color: #8A6714; }
+
+.version-note {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--grey-done);
+}
+
+.dated-block {
+  border-left: 3px solid var(--blue-tint);
+  padding-left: 13px;
+  margin-bottom: 14px;
+}
+/* Don't double up the rule when repeats sits inside the dated block. */
+.dated-block .repeat-block { border-left: none; padding-left: 0; }

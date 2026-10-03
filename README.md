@@ -155,10 +155,35 @@ off, or the task's estimate, or 10 minutes if neither was ever set. Marking
 something done has a **+ Time taken** fold-out if you want to record what it
 really took.
 
-A new task is a **one-off** unless you tick "This repeats", which is when the
-scheduling options appear. Where the schedule already pins the day — every
-week on a Saturday, monthly on the 12th — the due-date field disappears,
-since the weekday or date is what decides it.
+## When things are due
+
+Every task starts as **Whenever** — no date at all. It sits on the To-do list
+until someone does it and never goes late. Dates, times and repeats only
+appear once you pick one of the other two:
+
+- **Due by a date** is a window. It shows from the day after it was last done
+  right up to its date, so a fortnightly floor-clean due Sunday is back on the
+  list the Monday after you did it. Past its date it carries a soft yellow
+  warning.
+- **Due on a date** is the day itself. The bins don't appear until the
+  Wednesday they go out. Past it, the warning is red.
+
+Give a task a time and it goes late an hour after that time rather than at the
+end of the day. A task that **repeats** is still a one-off by default — tick
+"This repeats" for the scheduling options, and where the schedule already pins
+the day (every week on a Saturday, monthly on the 12th) the date field
+disappears, since the weekday or date is what decides it.
+
+Tasks made before this existed are treated as "due by", so nothing vanishes
+off your list.
+
+## Checking you're on the latest version
+
+The Home tab shows the running build at the bottom (`v20`, and so on). The app
+fetches its own code fresh whenever you have a connection and only falls back
+to the stored copy offline, so a deploy shows up on the next load. If the
+number doesn't change after you've pushed, you're looking at a stale page —
+close the app fully and reopen it.
 
 ## How the sync actually works
 

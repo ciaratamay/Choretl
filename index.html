@@ -135,6 +135,7 @@
           <button class="icon-btn" id="btn-edit-categories">Edit categories</button>
           <button class="icon-btn" id="btn-share-household">Share household</button>
           <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
+          <p class="version-note">Choretl <span id="app-version"></span></p>
         </div>
 
         <section class="checklist-wrap">
@@ -282,6 +283,18 @@
     </div>
 
     <div class="field">
+      <label for="input-task-duemode">When</label>
+      <select id="input-task-duemode">
+        <option value="whenever">Whenever &mdash; no date</option>
+        <option value="by">Due by a date</option>
+        <option value="on">Due on a date</option>
+      </select>
+      <p class="hint-text" id="duemode-hint"></p>
+    </div>
+
+    <div class="dated-block hidden" id="dated-block">
+
+    <div class="field">
       <label class="checkbox-field">
         <input type="checkbox" id="input-task-repeats" />
         <span>This repeats</span>
@@ -344,14 +357,17 @@
 
     <div class="modal-row">
       <div class="field" id="wrap-task-date">
-        <label for="input-task-date">First/next due date</label>
+        <label for="input-task-date" id="label-task-date">Due date</label>
         <input type="date" id="input-task-date" />
       </div>
       <div class="field">
         <label for="input-task-time">Time (optional)</label>
         <input type="time" id="input-task-time" />
+        <p class="hint-text">With a time set, it goes overdue an hour after it.</p>
       </div>
     </div>
+
+    </div><!-- /dated-block -->
 
     <div class="field" id="wrap-task-owner">
       <label for="input-task-owner">Owner</label>

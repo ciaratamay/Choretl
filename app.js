@@ -147,8 +147,20 @@ function freqIntervalDays(freq) {
   }
 }
 
+// A task's due date, or null for a "whenever" task that hasn't got one.
+function dueDateOf(task) {
+  return task.dueAt ? task.dueAt.toDate() : null;
+}
+
+// Sorting helper: tasks with no date sort to the end rather than to 1970.
+function dueSortValue(task) {
+  const d = dueDateOf(task);
+  return d ? d.getTime() : Infinity;
+}
+
 function advanceDue(task) {
-  const base = task.dueAt.toDate();
+  const base = dueDateOf(task);
+  if (!base) return null;
   const f = task.freq;
   switch (f.type) {
     case "once": return base;
@@ -161,22 +173,48 @@ function advanceDue(task) {
   }
 }
 
-// A task has an "appear" moment (when it starts showing in the To-do tab)
-// and an "overdue" moment (when it starts showing the red warning). A timed
-// task appears right at its time; an untimed one defaults to 7am on its due
-// day. Either way it goes overdue at the end of that day if not actioned.
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function endOfDay(date) {
+  const d = startOfDay(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+// When a task starts showing in the To-do tab, and when it starts warning.
+//
+// A "whenever" task has no date at all: always available, never late.
+// A "due on" task is only there on the day itself — bins go out on the
+// Wednesday, so there's no point seeing them on the Monday.
+// A "due by" task is there for the whole stretch leading up to its date:
+// from the day after it was last done, or straight away if it never has
+// been. Clean the floors any time this fortnight, just have it done by
+// Sunday.
+//
+// With a time set, an hour's grace before it counts as late; without one,
+// you have until the end of the day.
 function taskWindow(task) {
-  const due = task.dueAt.toDate();
-  const day = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  let appearAt;
-  if (task.hasTime) {
-    appearAt = new Date(due);
-  } else {
-    appearAt = new Date(day);
-    appearAt.setHours(7, 0, 0, 0);
+  const due = dueDateOf(task);
+  if (!due || task.dueMode === "whenever") {
+    return { appearAt: null, overdueAt: null };
   }
-  const overdueAt = new Date(day);
-  overdueAt.setHours(23, 59, 59, 999);
+
+  const overdueAt = task.hasTime
+    ? new Date(due.getTime() + 60 * 60 * 1000)
+    : endOfDay(due);
+
+  let appearAt;
+  if (task.dueMode === "on") {
+    appearAt = task.hasTime ? new Date(due) : startOfDay(due);
+  } else {
+    const lastAt = task.lastCompletion && task.lastCompletion.at
+      ? task.lastCompletion.at.toDate()
+      : null;
+    // The next stretch opens the morning after it was last done.
+    appearAt = lastAt ? startOfDay(addDays(lastAt, 1)) : null;
+  }
   return { appearAt, overdueAt };
 }
 
@@ -184,9 +222,25 @@ function taskWindow(task) {
 // actionable, "overdue" = showing with a warning.
 function taskStatus(task, now) {
   const { appearAt, overdueAt } = taskWindow(task);
-  if (now < appearAt) return "pending";
+  if (!overdueAt) return "upcoming";            // a "whenever" task
   if (now > overdueAt) return "overdue";
+  if (appearAt && now < appearAt) return "pending";
   return "upcoming";
+}
+
+// Missing a "due by" date is a nudge; missing a "due on" one is a miss. They
+// warn in different colours to match.
+function isSoftOverdue(task) {
+  return task.dueMode === "by";
+}
+
+// How a task's timing reads in a list.
+function dueText(task, status) {
+  const due = dueDateOf(task);
+  if (!due || task.dueMode === "whenever") return "Whenever";
+  const when = fmtDue(due, task.hasTime);
+  if (status === "overdue") return task.dueMode === "by" ? `Was due by ${when}` : `Was due ${when}`;
+  return task.dueMode === "by" ? `Due by ${when}` : `Due ${when}`;
 }
 
 function escapeHtml(s) {
@@ -1267,11 +1321,21 @@ function subscribeTasks() {
 // Tasks written by older versions of the app don't have owner / priority /
 // takeTurns / categoryId. Filling the gaps on the way in means the rest of
 // the app can read them plainly, and the old boolean star becomes "high".
+const DUE_MODES = ["whenever", "by", "on"];
+
 function normaliseTask(id, raw) {
   const takeTurns = !!raw.takeTurns;
+  // Tasks written before due modes existed all carried a date and stayed
+  // visible once they'd appeared, so they read as "due by" — picking "due
+  // on" would hide most of a list overnight.
+  const dueMode = DUE_MODES.includes(raw.dueMode)
+    ? raw.dueMode
+    : (raw.dueAt ? "by" : "whenever");
   return {
     id,
     ...raw,
+    dueMode,
+    dueAt: raw.dueAt || null,
     priority: typeof raw.priority === "number" ? raw.priority : (raw.starred ? 1 : 0),
     // Taking turns and having an owner are mutually exclusive. Tasks saved
     // before that was true could carry both, so the owner is dropped here
@@ -1343,8 +1407,7 @@ function matchesDoneFilter(value, doneBy) {
 // and plan for it ahead of time.
 function isOpenNow(task, now) {
   if (task.freq.type === "once" && task.lastCompletion) return false;
-  if (task.lastCompletion && taskStatus(task, now) === "pending") return false;
-  return true;
+  return taskStatus(task, now) !== "pending";
 }
 
 function renderDue() {
@@ -1359,10 +1422,10 @@ function renderDue() {
   } else if (sortVal === "priority") {
     list_.sort((a, b) => {
       if ((b.priority || 0) !== (a.priority || 0)) return (b.priority || 0) - (a.priority || 0);
-      return a.dueAt.toDate() - b.dueAt.toDate();
+      return dueSortValue(a) - dueSortValue(b);
     });
   } else {
-    list_.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+    list_.sort((a, b) => dueSortValue(a) - dueSortValue(b));
   }
 
   visibleLists.due = list_;
@@ -1422,7 +1485,7 @@ function renderAllTasks() {
   } else if (sortVal === "created-old") {
     all.sort((a, b) => createdMs(a) - createdMs(b));
   } else {
-    all.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+    all.sort((a, b) => dueSortValue(a) - dueSortValue(b));
   }
 
   visibleLists.alltasks = all;
@@ -1458,16 +1521,14 @@ function buildInstancePanel(task, now) {
   if (isOpenNow(task, now)) {
     const status = taskStatus(task, now);
     wrap.classList.add("live");
-    if (status === "overdue") wrap.classList.add("overdue");
+    if (status === "overdue") wrap.classList.add(isSoftOverdue(task) ? "overdue-soft" : "overdue");
     wrap.style.setProperty("--inst", task.assignedTo && profilesCache[task.assignedTo]
       ? colorForProfile(task.assignedTo)
       : "var(--grey-done)");
 
     const when = document.createElement("span");
     when.className = "inst-when";
-    when.textContent = status === "overdue"
-      ? `Overdue ${fmtDue(task.dueAt.toDate(), task.hasTime)}`
-      : `Due ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+    when.textContent = dueText(task, status);
     wrap.appendChild(when);
 
     const actions = document.createElement("div");
@@ -1495,9 +1556,24 @@ function buildInstancePanel(task, now) {
     wrap.appendChild(actions);
   } else {
     wrap.classList.add("dormant");
+
+    // Never been done, just not its turn yet — a "due on" task before its
+    // day. Saying "last done —" there would read as though it were overdue.
+    if (!lc) {
+      const soon = document.createElement("span");
+      soon.className = "inst-when";
+      soon.textContent = "Not yet";
+      wrap.appendChild(soon);
+      const when = document.createElement("span");
+      when.className = "inst-who";
+      when.textContent = dueText(task, "upcoming");
+      wrap.appendChild(when);
+      return wrap;
+    }
+
     const label = document.createElement("span");
     label.className = "inst-when";
-    label.textContent = lc && lc.skipped ? "Skipped" : "Last done";
+    label.textContent = lc.skipped ? "Skipped" : "Last done";
     wrap.appendChild(label);
 
     const who = document.createElement("div");
@@ -1512,10 +1588,10 @@ function buildInstancePanel(task, now) {
     who.appendChild(name);
     wrap.appendChild(who);
 
-    if (task.freq.type !== "once") {
+    if (task.freq.type !== "once" && dueDateOf(task)) {
       const next = document.createElement("span");
       next.className = "inst-next";
-      next.textContent = `Back ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+      next.textContent = `Back ${fmtDue(dueDateOf(task), task.hasTime)}`;
       wrap.appendChild(next);
     }
   }
@@ -1671,7 +1747,7 @@ function renderChecklist() {
   const open = Object.values(tasksById)
     .filter((t) => isOpenNow(t, now))
     .filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t))
-    .sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+    .sort((a, b) => dueSortValue(a) - dueSortValue(b));
 
   // The ticked-off half matches on who actually did it — that's whose tick
   // it is — rather than on who the next one is assigned to.
@@ -1705,7 +1781,7 @@ function buildCheckRow(task, now, done = false) {
   const li = document.createElement("li");
   li.className = `check-row${done ? " checked" : ""}`;
   const status = done ? null : taskStatus(task, now);
-  if (status === "overdue") li.classList.add("overdue");
+  if (status === "overdue") li.classList.add(isSoftOverdue(task) ? "overdue-soft" : "overdue");
   if (!done && task.priority === 3) li.classList.add("prio-urgent");
 
   const box = document.createElement("button");
@@ -1749,9 +1825,7 @@ function buildCheckRow(task, now, done = false) {
     const whose = task.assignedTo && profilesCache[task.assignedTo]
       ? profilesCache[task.assignedTo].name
       : "Unassigned";
-    meta.textContent = status === "overdue"
-      ? `${whose} · overdue since ${fmtDue(task.dueAt.toDate(), task.hasTime)}`
-      : `${whose} · due ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+    meta.textContent = `${whose} · ${dueText(task, status)}`;
   }
   main.appendChild(meta);
   li.appendChild(main);
@@ -1965,7 +2039,7 @@ function renderOpenRow(task, now) {
   const li = document.createElement("li");
   li.className = "task-row instance-row";
   const status = taskStatus(task, now);
-  if (status === "overdue") li.classList.add("overdue-row");
+  if (status === "overdue") li.classList.add(isSoftOverdue(task) ? "overdue-soft" : "overdue-row");
   if (task.priority === 3) li.classList.add("prio-urgent");
   li.style.setProperty("--stripe", task.assignedTo && profilesCache[task.assignedTo]
     ? colorForProfile(task.assignedTo)
@@ -1984,7 +2058,7 @@ function renderOpenRow(task, now) {
   appendCategoryChips(titleRow, task);
   if (status === "overdue") {
     const badge = document.createElement("span");
-    badge.className = "status-badge overdue";
+    badge.className = `status-badge ${isSoftOverdue(task) ? "overdue-soft" : "overdue"}`;
     badge.textContent = "Overdue";
     titleRow.appendChild(badge);
   }
@@ -2020,8 +2094,7 @@ function renderOpenRow(task, now) {
 
   const freqNote = document.createElement("span");
   freqNote.className = "freq-note";
-  const dueLabel = status === "overdue" ? "overdue since" : "due";
-  freqNote.textContent = `${freqSummary(task.freq)} · ${dueLabel} ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+  freqNote.textContent = `${freqSummary(task.freq)} · ${dueText(task, status)}`;
 
   main.appendChild(titleRow);
   main.appendChild(meta);
@@ -2130,8 +2203,8 @@ async function completeTask(task, byId, skipped, mins = null) {
     doneAt: serverTimestamp(),
   });
   await updateDoc(taskDoc(task.id), {
-    dueAt: Timestamp.fromDate(nextDue),
-    prevDueAt,
+    dueAt: nextDue ? Timestamp.fromDate(nextDue) : null,
+    prevDueAt: prevDueAt || null,
     prevAssignedTo: task.assignedTo ?? null,
     assignedTo: nextAssignee,
     lastCompletion: {
@@ -2238,11 +2311,26 @@ on("btn-delete-task", "click", () => deleteTask());
 on("input-task-freq", "change", updateFreqRows);
 
 function taskModalFreqType() {
-  return $("input-task-repeats").checked ? $("input-task-freq").value : "once";
+  const dated = $("input-task-duemode").value !== "whenever";
+  return dated && $("input-task-repeats").checked ? $("input-task-freq").value : "once";
 }
 
+const DUE_MODE_HINTS = {
+  whenever: "No date at all — it just sits on the list until someone does it.",
+  by: "Shows from the day after it was last done, right up to its date. Late is a gentle nudge.",
+  on: "Only shows on the day itself — the bins don't need looking at until Wednesday.",
+};
+
 function updateFreqRows() {
-  const repeats = $("input-task-repeats").checked;
+  const dueMode = $("input-task-duemode").value;
+  const dated = dueMode !== "whenever";
+  // Dates, times and repeats only make sense once there's a date at all.
+  $("dated-block").classList.toggle("hidden", !dated);
+  $("duemode-hint").textContent = DUE_MODE_HINTS[dueMode] || "";
+  $("label-task-date").textContent = dueMode === "by" ? "Due by" : "Due on";
+  if (!dated) $("input-task-repeats").checked = false;
+
+  const repeats = dated && $("input-task-repeats").checked;
   const type = taskModalFreqType();
   // All the repeat machinery stays out of the way until you say it repeats.
   $("repeat-block").classList.toggle("hidden", !repeats);
@@ -2263,6 +2351,7 @@ function updateOwnerRow() {
   if (turns) $("input-task-owner").value = "";
 }
 
+on("input-task-duemode", "change", updateFreqRows);
 on("input-task-repeats", "change", updateFreqRows);
 on("input-task-taketurns", "change", updateOwnerRow);
 
@@ -2271,7 +2360,8 @@ function openAddTaskModal() {
   $("task-modal-title").textContent = "Add task";
   $("task-modal-sub").classList.add("hidden");
   $("input-task-title").value = "";
-  // One-off is the default — most things people add are one-offs.
+  // No date at all is the default — you opt into scheduling, not out of it.
+  $("input-task-duemode").value = "whenever";
   $("input-task-repeats").checked = false;
   $("input-task-freq").value = "daily";
   $("input-interval-n").value = 2;
@@ -2301,12 +2391,13 @@ function openEditTaskModal(task) {
   $("task-modal-title").textContent = "Edit task";
   $("task-modal-sub").classList.toggle("hidden", activeTab === "alltasks");
   $("input-task-title").value = task.title;
+  $("input-task-duemode").value = task.dueMode || "whenever";
   const repeats = task.freq.type !== "once";
   $("input-task-repeats").checked = repeats;
   $("input-task-freq").value = repeats ? task.freq.type : "daily";
   $("input-interval-n").value = task.freq.intervalDays || 2;
   $("input-interval-weeks").value = task.freq.intervalWeeks || 2;
-  const d = task.dueAt.toDate();
+  const d = dueDateOf(task) || new Date();
   // Older weekly tasks had no weekday of their own — take it from the date.
   $("input-weekday").value = String(task.freq.weekday ?? d.getDay());
   $("input-monthday").value = task.freq.monthDay || d.getDate();
@@ -2347,30 +2438,36 @@ async function saveTask() {
   }
   if (type === "monthly") freq.monthDay = Math.min(28, Math.max(1, parseInt($("input-monthday").value, 10) || 1));
 
-  // Where the due date comes from: the weekday or day-of-month when one of
-  // those governs, otherwise the date field. On an edit that didn't change
-  // the schedule, the occurrence already in flight is left where it is.
+  // Where the due date comes from: nowhere at all for a "whenever" task; the
+  // weekday or day-of-month when one of those governs; otherwise the date
+  // field. On an edit that didn't change the schedule, the occurrence already
+  // in flight is left where it is.
+  const dueMode = $("input-task-duemode").value;
   const existing = editingTaskId ? tasksById[editingTaskId] : null;
   const sameFreq = existing && JSON.stringify(existing.freq) === JSON.stringify(freq);
-  let dueDate;
-  if (freqImpliesDate(type)) {
-    if (sameFreq) dueDate = existing.dueAt.toDate();
-    else if (type === "monthly") dueDate = nextMonthDayDate(freq.monthDay);
-    else dueDate = nextWeekdayDate(freq.weekday);
-  } else {
-    const dateStr = $("input-task-date").value;
-    if (!dateStr) { err.textContent = "Pick a due date."; return; }
-    dueDate = new Date(`${dateStr}T00:00`);
-  }
+  let dueDate = null;
+  let hasTime = false;
 
-  const timeStr = $("input-task-time").value;
-  const hasTime = !!timeStr;
-  dueDate = new Date(dueDate);
-  if (hasTime) {
-    const [hh, mm] = timeStr.split(":").map((n) => parseInt(n, 10));
-    dueDate.setHours(hh || 0, mm || 0, 0, 0);
-  } else {
-    dueDate.setHours(0, 0, 0, 0);
+  if (dueMode !== "whenever") {
+    if (freqImpliesDate(type)) {
+      if (sameFreq && dueDateOf(existing)) dueDate = dueDateOf(existing);
+      else if (type === "monthly") dueDate = nextMonthDayDate(freq.monthDay);
+      else dueDate = nextWeekdayDate(freq.weekday);
+    } else {
+      const dateStr = $("input-task-date").value;
+      if (!dateStr) { err.textContent = "Pick a date, or set this to “Whenever”."; return; }
+      dueDate = new Date(`${dateStr}T00:00`);
+    }
+
+    const timeStr = $("input-task-time").value;
+    hasTime = !!timeStr;
+    dueDate = new Date(dueDate);
+    if (hasTime) {
+      const [hh, mm] = timeStr.split(":").map((n) => parseInt(n, 10));
+      dueDate.setHours(hh || 0, mm || 0, 0, 0);
+    } else {
+      dueDate.setHours(0, 0, 0, 0);
+    }
   }
 
   const takeTurns = type !== "once" && $("input-task-taketurns").checked;
@@ -2385,7 +2482,7 @@ async function saveTask() {
     if (editingTaskId) {
       const existing = tasksById[editingTaskId];
       const patch = {
-        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
+        title, freq, dueMode, dueAt: dueDate ? Timestamp.fromDate(dueDate) : null, hasTime,
         owner, takeTurns, categoryIds, estimateMins,
       };
       // Changing the owner carries the currently-open occurrence with it,
@@ -2397,7 +2494,7 @@ async function saveTask() {
       await updateDoc(taskDoc(editingTaskId), patch);
     } else {
       await addDoc(tasksCol(), {
-        title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
+        title, freq, dueMode, dueAt: dueDate ? Timestamp.fromDate(dueDate) : null, hasTime,
         owner, assignedTo: owner, takeTurns, categoryIds, estimateMins, priority: 0,
         createdBy: currentProfile.id, createdAt: serverTimestamp(),
       });
@@ -2430,10 +2527,38 @@ window.addEventListener("online", updateSyncDot);
 window.addEventListener("offline", updateSyncDot);
 updateSyncDot();
 
+// The running build, read from the service worker's own cache name — so it
+// reports what's actually loaded rather than a number typed in two places.
+// Handy for telling whether a deploy has landed yet.
+async function showAppVersion() {
+  const el = $("app-version");
+  if (!el) return;
+  const read = async () => {
+    try {
+      const names = await caches.keys();
+      const shell = names.find((n) => n.startsWith("choretl-shell-"));
+      return shell ? shell.replace("choretl-shell-", "") : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  let version = await read();
+  // On a first visit the worker hasn't cached anything yet — wait for it
+  // rather than reporting nothing.
+  if (!version && navigator.serviceWorker) {
+    try {
+      await navigator.serviceWorker.ready;
+      version = await read();
+    } catch (e) { /* no worker — leave it blank */ }
+  }
+  el.textContent = version || "";
+}
+
 // ---------- startup ----------
 function init() {
   wireEyeButtons();
   wireSegmented();
+  showAppVersion();
   const savedHouseholdId = localStorage.getItem(LS_HOUSEHOLD_ID);
   const savedHouseholdName = localStorage.getItem(LS_HOUSEHOLD_NAME);
   if (savedHouseholdId) {
