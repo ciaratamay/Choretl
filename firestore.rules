@@ -28,6 +28,9 @@ service cloud.firestore {
       match /log/{logId} {
         allow read, write: if true;
       }
+      match /categories/{categoryId} {
+        allow read, write: if true;
+      }
     }
   }
 }
