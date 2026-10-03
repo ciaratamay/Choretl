@@ -309,23 +309,22 @@ input, select { font-family: inherit; }
   gap: 6px;
 }
 
-/* Three priority steps: outline, yellow, bigger yellow. */
+/* Four priority steps, all drawn in the same 18px box so tapping through
+   them never shifts the title next to it. */
 .star-btn {
   background: none;
   border: none;
   padding: 0;
-  font-size: 1.15rem;
-  line-height: 1;
-  color: #B9C6D6;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  transition: color 0.15s ease, font-size 0.15s ease, transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
-.star-btn.p1 { color: #D9A520; }
-.star-btn.p2 {
-  color: #D9A520;
-  font-size: 1.55rem;
-  filter: drop-shadow(0 1px 1px rgba(166,121,10,0.35));
-}
+.star-btn svg { display: block; }
+.star-btn:hover { opacity: 0.75; }
 
 .profile-dot {
   width: 10px;
@@ -1300,11 +1299,15 @@ body.modal-open { overflow: hidden; }
 
 .check-star {
   flex-shrink: 0;
-  color: #D9A520;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  line-height: 0;
 }
-.check-star.p2 { font-size: 1.25rem; line-height: 1.15; }
+.check-star svg { display: block; }
 
 .check-divider {
   padding: 9px 14px;
@@ -1325,4 +1328,77 @@ body.modal-open { overflow: hidden; }
   .chip { padding: 9px 14px; font-size: 0.9rem; }
   .check-row { padding: 12px 13px; }
   .check-box { width: 26px; height: 26px; }
+}
+
+/* ---------- Highest priority: a red outline round the whole card ---------- */
+/* Placed after the overdue rules so it wins when a task is both. */
+
+.task-row.prio-urgent,
+.check-row.prio-urgent {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger), var(--shadow);
+}
+/* An instance row keeps its assignee stripe — the red ring goes round it. */
+.instance-row.prio-urgent { border-left-color: var(--stripe, var(--grey-done)); }
+.check-row.prio-urgent {
+  box-shadow: inset 0 0 0 1px var(--danger);
+  border-bottom-color: var(--danger);
+}
+
+/* ---------- Household name in the header ---------- */
+
+.household-chip {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.26);
+  border-radius: 20px;
+  padding: 3px 11px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Once you're in a household its name is the more useful label, so it takes
+   the wordmark's place where space is tight. */
+@media (max-width: 680px) {
+  body.in-household .brand-word { display: none; }
+}
+@media (max-width: 480px) {
+  .household-chip { max-width: 112px; font-size: 0.8rem; padding: 3px 9px; }
+}
+
+/* ---------- Copy list ---------- */
+
+.copy-btn {
+  font-weight: 600;
+  color: var(--blue-dark);
+  border-color: #C9DAEE;
+  background: var(--blue-tint);
+  white-space: nowrap;
+}
+.copy-btn:hover { background: var(--blue-dark); border-color: var(--blue-dark); color: #fff; }
+
+/* ---------- Share invite ---------- */
+
+.share-preview {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ink);
+  background: #F7FAFD;
+  resize: vertical;
+  margin-top: 5px;
+}
+.share-preview:focus { outline: none; border-color: var(--blue-dark); }
+
+@media (max-width: 560px) {
+  .share-preview { font-size: 16px; }
 }

@@ -21,6 +21,7 @@
     <div class="brand">
       <img class="brand-turtle" src="icon-192.png" alt="" aria-hidden="true" />
       <span class="brand-word">Choretl</span>
+      <span class="household-chip hidden" id="header-household"></span>
     </div>
     <button class="tab-btn active" data-tab="home"><span id="tab-home-label">Home</span></button>
     <button class="tab-btn" data-tab="due" disabled>To-do</button>
@@ -134,6 +135,7 @@
           <p class="sub">Viewing as <strong id="me-badge"></strong> &middot; <span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></p>
           <button class="icon-btn" id="btn-switch-profile">Switch / manage people</button>
           <button class="icon-btn" id="btn-edit-categories">Edit categories</button>
+          <button class="icon-btn" id="btn-share-household">Share household</button>
           <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
         </div>
 
@@ -143,6 +145,7 @@
             <div class="pane-head-controls">
               <select class="filter-select" id="filter-checklist"></select>
               <button type="button" class="filter-select cat-btn" id="filter-cat-home">All categories</button>
+              <button type="button" class="filter-select copy-btn" id="copy-checklist">Copy list</button>
             </div>
           </div>
           <ul class="checklist" id="home-checklist"></ul>
@@ -178,6 +181,7 @@
         <div class="pane-head-controls">
           <select class="filter-select" id="filter-due"></select>
           <button type="button" class="filter-select cat-btn" id="filter-cat-due">All categories</button>
+          <button type="button" class="filter-select copy-btn" id="copy-due">Copy list</button>
           <select class="filter-select" id="sort-due">
             <option value="dueDate">Soonest due</option>
             <option value="alpha">A&ndash;Z</option>
@@ -196,6 +200,7 @@
         <div class="pane-head-controls">
           <select class="filter-select" id="filter-done"></select>
           <button type="button" class="filter-select cat-btn" id="filter-cat-done">All categories</button>
+          <button type="button" class="filter-select copy-btn" id="copy-done">Copy list</button>
           <select class="filter-select" id="sort-done">
             <option value="recent">Most recently done</option>
             <option value="oldest">Least recently done</option>
@@ -213,6 +218,7 @@
         <h2>All tasks</h2>
         <div class="pane-head-controls">
           <button type="button" class="filter-select cat-btn" id="filter-cat-alltasks">All categories</button>
+          <button type="button" class="filter-select copy-btn" id="copy-alltasks">Copy list</button>
           <select class="filter-select" id="alltasks-sort">
             <option value="alpha">A&ndash;Z</option>
             <option value="priority">Priority</option>
@@ -393,6 +399,31 @@
       <div style="flex:1"></div>
       <button class="icon-btn" id="btn-cancel-done">Cancel</button>
       <button class="primary-btn" id="btn-confirm-done" style="width:auto;">Mark done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= SHARE HOUSEHOLD MODAL ================= -->
+<div class="modal-backdrop hidden" id="share-modal-backdrop">
+  <div class="modal">
+    <h2>Share your household</h2>
+    <div class="modal-body">
+      <p class="hint-text" style="margin-top:0;">Copy this and send it to whoever's joining. They'll need the password, so it's included &mdash; only send it to people you want in the household.</p>
+      <div class="field">
+        <label for="input-share-password">Household password</label>
+        <div class="password-field">
+          <input type="password" id="input-share-password" autocomplete="off" />
+          <button type="button" class="eye-btn" data-target="input-share-password" aria-label="Show password"></button>
+        </div>
+        <p class="hint-text" id="share-password-note"></p>
+      </div>
+      <label for="share-preview">Invite</label>
+      <textarea id="share-preview" class="share-preview" rows="9" readonly></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="icon-btn" id="btn-close-share">Close</button>
+      <div style="flex:1"></div>
+      <button class="primary-btn" id="btn-copy-share" style="width:auto;">Copy invite</button>
     </div>
   </div>
 </div>

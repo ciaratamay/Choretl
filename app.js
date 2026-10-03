@@ -16,6 +16,10 @@ const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 const LS_HOUSEHOLD_ID = "choretl.householdId";
 const LS_HOUSEHOLD_NAME = "choretl.householdName";
 const LS_PROFILE_ID = "choretl.activeProfileId";
+// Kept on this device only — never written to Firestore, which holds just a
+// hash. It's here so "Share household" can put the password in the invite
+// without making you dig it out of your head every time.
+const LS_HOUSEHOLD_PASSWORD = "choretl.householdPassword";
 
 function showToast(msg) {
   const t = $("toast");
@@ -348,6 +352,7 @@ on("btn-create-household", "click", async () => {
     }
     const passwordHash = await sha256Hex(`${id}:${password}`);
     await setDoc(ref, { name, passwordHash, hint: hint || null, createdAt: serverTimestamp() });
+    localStorage.setItem(LS_HOUSEHOLD_PASSWORD, password);
     enterHousehold(id, name);
   } catch (e) {
     err.textContent = `Couldn't create that household — ${e.message || e.code || "unknown error"}.`;
@@ -375,6 +380,7 @@ async function doJoinHousehold() {
     const data = snap.data();
     const hash = await sha256Hex(`${id}:${password}`);
     if (hash !== data.passwordHash) { err.textContent = "That password doesn't match."; return; }
+    localStorage.setItem(LS_HOUSEHOLD_PASSWORD, password);
     enterHousehold(id, data.name || name);
   } catch (e) {
     err.textContent = `Couldn't join right now — ${e.message || e.code || "unknown error"}.`;
@@ -390,6 +396,7 @@ function enterHousehold(id, name) {
   localStorage.setItem(LS_HOUSEHOLD_NAME, name);
   $("household-name-display").textContent = name;
   $("household-name-display-2").textContent = name;
+  syncHouseholdHeader();
   pendingAutoSelectProfileId = localStorage.getItem(LS_PROFILE_ID);
   subscribeProfiles();
   subscribeCategories();
@@ -410,15 +417,85 @@ function syncIdentityUI() {
   }
 }
 
+// ---------- sharing the household ----------
+// Where this copy of the app lives, so the invite points wherever it's
+// actually hosted rather than at a URL baked in at build time.
+function appUrl() {
+  const { origin, pathname } = window.location;
+  if (origin.startsWith("http")) {
+    const dir = pathname.replace(/[^/]*$/, "");
+    return `${origin}${dir}`;
+  }
+  return "https://ciaratamay.github.io/Choretl/";
+}
+
+function buildInviteText(password) {
+  return [
+    `Join my household task tracker at ${appUrl()}`,
+    "",
+    "* To install on Android, open the browser menu (top right) and choose “Install app”. On iPhone, tap Share then “Add to Home Screen”.",
+    `* Join my household called “${householdName || ""}”`,
+    `* Enter password - ${password || "(ask me)"}`,
+  ].join("\n");
+}
+
+function refreshInvitePreview() {
+  $("share-preview").value = buildInviteText($("input-share-password").value.trim());
+}
+
+on("btn-share-household", "click", () => {
+  const saved = localStorage.getItem(LS_HOUSEHOLD_PASSWORD) || "";
+  $("input-share-password").value = saved;
+  $("share-password-note").textContent = saved
+    ? "Saved on this device only — never uploaded."
+    : "This device doesn't have the password saved. Type it in to include it.";
+  refreshInvitePreview();
+  setModalOpen("share-modal-backdrop", true);
+});
+
+on("input-share-password", "input", refreshInvitePreview);
+on("btn-close-share", "click", () => setModalOpen("share-modal-backdrop", false));
+
+on("btn-copy-share", "click", async () => {
+  const typed = $("input-share-password").value.trim();
+  // If they filled it in by hand and it's right, remember it for next time.
+  if (typed && typed !== localStorage.getItem(LS_HOUSEHOLD_PASSWORD)) {
+    try {
+      const snap = await getDoc(hhDoc());
+      const hash = await sha256Hex(`${householdId}:${typed}`);
+      if (snap.exists() && hash === snap.data().passwordHash) {
+        localStorage.setItem(LS_HOUSEHOLD_PASSWORD, typed);
+        $("share-password-note").textContent = "Saved on this device only — never uploaded.";
+      } else {
+        $("share-password-note").textContent = "That doesn't match this household's password — copying it anyway.";
+      }
+    } catch (e) {
+      // Offline: copy what they typed and don't make a fuss about it.
+    }
+  }
+  await copyText(buildInviteText(typed), "Invite copied");
+});
+
+// The household name rides along in the header, so it's always visible —
+// it's the name people need when they join.
+function syncHouseholdHeader() {
+  const chip = $("header-household");
+  chip.textContent = householdName || "";
+  chip.classList.toggle("hidden", !householdName);
+  document.body.classList.toggle("in-household", !!householdName);
+}
+
 function leaveHousehold() {
   teardown();
   householdId = null;
   householdName = null;
   currentProfile = null;
   syncIdentityUI();
+  syncHouseholdHeader();
   localStorage.removeItem(LS_HOUSEHOLD_ID);
   localStorage.removeItem(LS_HOUSEHOLD_NAME);
   localStorage.removeItem(LS_PROFILE_ID);
+  localStorage.removeItem(LS_HOUSEHOLD_PASSWORD);
   $("input-join-name").value = "";
   $("input-join-password").value = "";
   $("input-create-name").value = "";
@@ -1057,21 +1134,36 @@ function closeAssignModal() {
 
 on("btn-cancel-assign", "click", closeAssignModal);
 
-// Priority is a three-step tap: outline (normal) -> yellow star (high) ->
-// bigger yellow star (highest) -> back to outline.
-const PRIORITY_LABELS = ["Normal priority", "High priority", "Highest priority"];
+// Priority cycles through four steps on tap: grey outline, thick yellow
+// outline, filled yellow, then an exclamation (which also puts a red
+// outline round the card). Every step is drawn at the same 18px box so
+// nothing around it shifts as you tap through.
+const PRIORITY_LABELS = ["Normal priority", "High priority", "Higher priority", "Highest priority"];
+const PRIORITY_STEPS = PRIORITY_LABELS.length;
+const STAR_PATH = "M12 2.6l2.95 5.98 6.6.96-4.77 4.65 1.12 6.57L12 17.66l-5.9 3.1 1.13-6.57L2.46 9.54l6.6-.96L12 2.6z";
+
+function priorityIconSvg(p) {
+  const open = (sw, colour) =>
+    `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="${colour}" stroke-width="${sw}" stroke-linejoin="round"><path d="${STAR_PATH}"/></svg>`;
+  switch (p) {
+    case 1: return open(2.6, "#D9A520");
+    case 2: return `<svg viewBox="0 0 24 24" width="18" height="18" fill="#D9A520" stroke="#D9A520" stroke-width="1.4" stroke-linejoin="round"><path d="${STAR_PATH}"/></svg>`;
+    case 3: return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#B3362F" stroke-width="2.9" stroke-linecap="round"><path d="M12 3.6v10.2"/><path d="M12 19.4v.1"/></svg>`;
+    default: return open(1.7, "#9AA6B4");
+  }
+}
 
 function buildStarButton(task) {
   const p = task.priority || 0;
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `star-btn p${p}`;
-  btn.textContent = p === 0 ? "☆" : "★";
+  btn.innerHTML = priorityIconSvg(p);
   btn.title = `${PRIORITY_LABELS[p]} — tap to change`;
   btn.setAttribute("aria-label", PRIORITY_LABELS[p]);
   btn.onclick = (e) => {
     e.stopPropagation();
-    updateDoc(taskDoc(task.id), { priority: (p + 1) % 3 });
+    updateDoc(taskDoc(task.id), { priority: (p + 1) % PRIORITY_STEPS });
   };
   return btn;
 }
@@ -1191,6 +1283,7 @@ function renderDue() {
     list_.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
   }
 
+  visibleLists.due = list_;
   const list = $("list-due");
   list.innerHTML = "";
   $("due-empty").classList.toggle("hidden", list_.length > 0);
@@ -1209,6 +1302,7 @@ function renderDoneList() {
   else if (sortVal === "oldest") done.sort((a, b) => doneAtMs(a) - doneAtMs(b));
   else done.sort((a, b) => doneAtMs(b) - doneAtMs(a));
 
+  visibleLists.done = done;
   const list = $("list-done");
   list.innerHTML = "";
   $("done-empty").classList.toggle("hidden", done.length > 0);
@@ -1249,6 +1343,7 @@ function renderAllTasks() {
     all.sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
   }
 
+  visibleLists.alltasks = all;
   const list = $("list-alltasks");
   list.innerHTML = "";
   $("alltasks-empty").classList.toggle("hidden", all.length > 0);
@@ -1352,9 +1447,13 @@ function buildInstancePanel(task, now) {
 function renderAllTasksRow(task, now) {
   const li = document.createElement("li");
   li.className = "task-row base-card";
+  const urgent = task.priority === 3;
+  if (urgent) li.classList.add("prio-urgent");
   if (task.owner && profilesCache[task.owner]) {
     li.style.background = tintForProfile(task.owner, 0.1);
-    li.style.borderColor = tintForProfile(task.owner, 0.45);
+    // At highest priority the red outline wins — an inline border colour
+    // here would quietly beat the stylesheet rule that draws it.
+    if (!urgent) li.style.borderColor = tintForProfile(task.owner, 0.45);
   }
 
   const main = document.createElement("div");
@@ -1404,6 +1503,76 @@ function renderAllTasksRow(task, now) {
   return li;
 }
 
+// ---------- copying a list out ----------
+// Whatever each list is showing right now, so "Copy list" hands over exactly
+// what's on screen — same filters, same sort, same order.
+const visibleLists = { due: [], done: [], alltasks: [], open: [], recent: [] };
+
+async function copyText(text, okMsg = "Copied to clipboard") {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // http / older browsers: the old textarea trick still works.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:-1000px;opacity:0;";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    showToast(okMsg);
+  } catch (e) {
+    showToast("Couldn't copy — try selecting the text manually.");
+  }
+}
+
+function personPhrase(kind) {
+  const v = kind === "done" ? doneFilter : assignFilter;
+  if (v === "anyone") return kind === "done" ? "Done by anyone" : "Everyone's tasks";
+  if (v === "mine") return kind === "done" ? "Done by me" : "My tasks";
+  const name = profilesCache[v]?.name || "Someone";
+  return kind === "done" ? `Done by ${name}` : `${name}'s tasks`;
+}
+
+function categoryPhrase() {
+  if (categoryFilter.size === 0) return "";
+  const names = [...categoryFilter].map((id) =>
+    id === "none" ? "no category" : (categoryName(id) || "?"));
+  return ` in ${names.join(", ")}`;
+}
+
+// Titles only — the point is a list you can paste into a message, not a
+// dump of due dates and assignments.
+function buildListText(which) {
+  let header = "";
+  let lines = [];
+  if (which === "due") {
+    header = personPhrase("due") + categoryPhrase();
+    lines = visibleLists.due.map((t) => `- ${t.title}`);
+  } else if (which === "done") {
+    header = personPhrase("done") + categoryPhrase();
+    lines = visibleLists.done.map((t) => `✓ ${t.title}`);
+  } else if (which === "alltasks") {
+    const search = $("alltasks-search").value.trim();
+    header = `All tasks${categoryPhrase()}${search ? ` matching "${search}"` : ""}`;
+    lines = visibleLists.alltasks.map((t) => `- ${t.title}`);
+  } else {
+    header = personPhrase("due") + categoryPhrase();
+    lines = visibleLists.open.map((t) => `- ${t.title}`)
+      .concat(visibleLists.recent.map((t) => `✓ ${t.title}`));
+  }
+  if (!lines.length) lines = ["(nothing on this list)"];
+  return `${header}\n${lines.join("\n")}`;
+}
+
+on("copy-due", "click", () => copyText(buildListText("due")));
+on("copy-done", "click", () => copyText(buildListText("done")));
+on("copy-alltasks", "click", () => copyText(buildListText("alltasks")));
+on("copy-checklist", "click", () => copyText(buildListText("checklist")));
+
 // ---------- Home: at-a-glance checklist ----------
 // Everything currently open, as a tickable list, with whatever was finished
 // in the last day shown already ticked off underneath. Ticking marks it done
@@ -1432,6 +1601,8 @@ function renderChecklist() {
       && matchesCategoryFilter(t))
     .sort((a, b) => b.lastCompletion.at.toDate() - a.lastCompletion.at.toDate());
 
+  visibleLists.open = open;
+  visibleLists.recent = recent;
   list.innerHTML = "";
   $("checklist-empty").classList.toggle("hidden", open.length + recent.length > 0);
 
@@ -1451,6 +1622,7 @@ function buildCheckRow(task, now, done = false) {
   li.className = `check-row${done ? " checked" : ""}`;
   const status = done ? null : taskStatus(task, now);
   if (status === "overdue") li.classList.add("overdue");
+  if (!done && task.priority === 3) li.classList.add("prio-urgent");
 
   const box = document.createElement("button");
   box.type = "button";
@@ -1503,7 +1675,7 @@ function buildCheckRow(task, now, done = false) {
   if (!done && task.priority) {
     const star = document.createElement("span");
     star.className = `check-star p${task.priority}`;
-    star.textContent = "★";
+    star.innerHTML = priorityIconSvg(task.priority);
     star.title = PRIORITY_LABELS[task.priority];
     li.appendChild(star);
   }
@@ -1694,6 +1866,7 @@ function renderOpenRow(task, now) {
   li.className = "task-row instance-row";
   const status = taskStatus(task, now);
   if (status === "overdue") li.classList.add("overdue-row");
+  if (task.priority === 3) li.classList.add("prio-urgent");
   li.style.setProperty("--stripe", task.assignedTo && profilesCache[task.assignedTo]
     ? colorForProfile(task.assignedTo)
     : "var(--grey-done)");
