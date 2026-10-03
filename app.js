@@ -162,6 +162,14 @@ function eyeSvg(open) {
     : `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.2A10.6 10.6 0 0 1 12 5c7 0 10.5 7 10.5 7a13.6 13.6 0 0 1-3.1 4.1M6.5 6.6C3.4 8.6 1.5 12 1.5 12s3.5 7 10.5 7a9.9 9.9 0 0 0 4.4-1"/><path d="M9.5 9.8a3 3 0 0 0 4.2 4.2"/></svg>`;
 }
 
+function checkIconSvg() {
+  return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>`;
+}
+
+function personIconSvg() {
+  return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="6.6" r="3.2"/><path d="M3.9 17c0-3.2 2.7-5.3 6.1-5.3s6.1 2.1 6.1 5.3"/></svg>`;
+}
+
 function editIconSvg() {
   return `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.3 3.3l3.4 3.4L6 17.4l-4 .9.9-4L13.3 3.3z"/></svg>`;
 }
@@ -236,6 +244,7 @@ const profileDoc = (id) => doc(db, "households", householdId, "profiles", id);
 const tasksCol = () => collection(db, "households", householdId, "tasks");
 const taskDoc = (id) => doc(db, "households", householdId, "tasks", id);
 const logCol = () => collection(db, "households", householdId, "log");
+const logDoc = (id) => doc(db, "households", householdId, "log", id);
 const categoriesCol = () => collection(db, "households", householdId, "categories");
 const categoryDoc = (id) => doc(db, "households", householdId, "categories", id);
 
@@ -658,62 +667,123 @@ function subscribeCategories() {
     snap.forEach((d) => { categoriesCache[d.id] = d.data(); });
     sortedCategoryIds = Object.keys(categoriesCache).sort((a, b) =>
       (categoriesCache[a].name || "").localeCompare(categoriesCache[b].name || ""));
-    populateCategorySelects();
+    pruneCategoryFilter();
+    syncCategoryFilterButtons();
+    renderCategoryFilterOptions();
+    renderTaskCategoryChips();
     renderCategoryAdmin();
     renderAll();
   }, () => showToast("Having trouble syncing categories right now."));
 }
 
-const CAT_FILTER_IDS = ["filter-cat-due", "filter-cat-done", "filter-cat-alltasks", "filter-cat-summary"];
+const CAT_FILTER_IDS = [
+  "filter-cat-home", "filter-cat-due", "filter-cat-done",
+  "filter-cat-alltasks", "filter-cat-summary",
+];
 
-// A category means the same thing in every tab, so unlike the person
-// filters this one is a single shared setting that carries across them.
-let sharedCategoryFilter = "all";
+// Categories are tags, so the filter is a set rather than one choice, and a
+// task shows if it carries ANY of the picked ones. Empty set = no filtering.
+// A category means the same thing in every tab, so unlike the person filters
+// this one setting carries across all of them.
+const categoryFilter = new Set();
 
-function populateCategorySelects() {
-  CAT_FILTER_IDS.forEach((selId) => {
-    const sel = $(selId);
-    sel.innerHTML = '<option value="all">All categories</option>';
-    sortedCategoryIds.forEach((id) => {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = categoriesCache[id].name;
-      sel.appendChild(opt);
-    });
-    const none = document.createElement("option");
-    none.value = "none";
-    none.textContent = "No category";
-    sel.appendChild(none);
-    sel.value = [...sel.options].some((o) => o.value === sharedCategoryFilter) ? sharedCategoryFilter : "all";
-  });
-
-  // The category picker inside the task modal.
-  const modalSel = $("input-task-category");
-  const keep = modalSel.value;
-  modalSel.innerHTML = '<option value="">No category</option>';
-  sortedCategoryIds.forEach((id) => {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = categoriesCache[id].name;
-    modalSel.appendChild(opt);
-  });
-  if ([...modalSel.options].some((o) => o.value === keep)) modalSel.value = keep;
-  $("category-empty-hint").classList.toggle("hidden", sortedCategoryIds.length > 0);
+function categoryFilterLabel() {
+  if (categoryFilter.size === 0) return "All categories";
+  if (categoryFilter.size === 1) {
+    const only = [...categoryFilter][0];
+    return only === "none" ? "Untagged" : (categoryName(only) || "1 category");
+  }
+  return `${categoryFilter.size} categories`;
 }
 
-function onCategoryFilterChange(e) {
-  sharedCategoryFilter = e.target.value;
-  CAT_FILTER_IDS.forEach((selId) => {
-    const sel = $(selId);
-    if ([...sel.options].some((o) => o.value === sharedCategoryFilter)) sel.value = sharedCategoryFilter;
+function syncCategoryFilterButtons() {
+  CAT_FILTER_IDS.forEach((id) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.textContent = categoryFilterLabel();
+    btn.classList.toggle("filtering", categoryFilter.size > 0);
   });
-  renderAll();
 }
 
 function matchesCategoryFilter(task) {
-  if (sharedCategoryFilter === "all") return true;
-  if (sharedCategoryFilter === "none") return !task.categoryId;
-  return task.categoryId === sharedCategoryFilter;
+  if (categoryFilter.size === 0) return true;
+  const ids = task.categoryIds || [];
+  if (categoryFilter.has("none") && ids.length === 0) return true;
+  return ids.some((id) => categoryFilter.has(id));
+}
+
+// Tags that no longer exist (deleted elsewhere) shouldn't keep filtering.
+function pruneCategoryFilter() {
+  [...categoryFilter].forEach((id) => {
+    if (id !== "none" && !categoriesCache[id]) categoryFilter.delete(id);
+  });
+}
+
+// ---------- the shared "filter by category" picker ----------
+CAT_FILTER_IDS.forEach((id) => {
+  const btn = $(id);
+  if (btn) btn.addEventListener("click", openCategoryFilterModal);
+});
+
+function openCategoryFilterModal() {
+  renderCategoryFilterOptions();
+  setModalOpen("catfilter-modal-backdrop", true);
+}
+
+function renderCategoryFilterOptions() {
+  const wrap = $("catfilter-options");
+  wrap.innerHTML = "";
+  $("catfilter-empty").classList.toggle("hidden", sortedCategoryIds.length > 0);
+
+  const entries = sortedCategoryIds.map((id) => [id, categoriesCache[id].name]);
+  if (sortedCategoryIds.length) entries.push(["none", "Untagged"]);
+
+  entries.forEach(([value, label]) => {
+    wrap.appendChild(buildChip(label, categoryFilter.has(value), () => {
+      if (categoryFilter.has(value)) categoryFilter.delete(value);
+      else categoryFilter.add(value);
+      renderCategoryFilterOptions();
+      syncCategoryFilterButtons();
+      renderAll();
+    }));
+  });
+}
+
+on("btn-clear-catfilter", "click", () => {
+  categoryFilter.clear();
+  renderCategoryFilterOptions();
+  syncCategoryFilterButtons();
+  renderAll();
+});
+on("btn-close-catfilter", "click", () => setModalOpen("catfilter-modal-backdrop", false));
+
+// A tappable tag — used for both picking a task's categories and filtering.
+function buildChip(label, selected, onToggle) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `chip${selected ? " selected" : ""}`;
+  btn.textContent = label;
+  btn.setAttribute("aria-pressed", selected ? "true" : "false");
+  btn.onclick = onToggle;
+  return btn;
+}
+
+// ---------- the task modal's category chips ----------
+const taskModalCategories = new Set();
+
+function renderTaskCategoryChips() {
+  const wrap = $("input-task-categories");
+  wrap.innerHTML = "";
+  sortedCategoryIds.forEach((id) => {
+    wrap.appendChild(buildChip(categoriesCache[id].name, taskModalCategories.has(id), () => {
+      if (taskModalCategories.has(id)) taskModalCategories.delete(id);
+      else taskModalCategories.add(id);
+      renderTaskCategoryChips();
+    }));
+  });
+  const none = sortedCategoryIds.length === 0;
+  $("category-empty-hint").classList.toggle("hidden", !none);
+  $("category-multi-hint").classList.toggle("hidden", none);
 }
 
 on("btn-edit-categories", "click", () => {
@@ -782,15 +852,19 @@ function renderCategoryAdmin() {
 
 async function deleteCategory(id) {
   const name = categoriesCache[id]?.name || "this category";
-  const used = Object.values(tasksById).filter((t) => t.categoryId === id);
+  const used = Object.values(tasksById).filter((t) => (t.categoryIds || []).includes(id));
   const msg = used.length
-    ? `Delete "${name}"? ${used.length} task${used.length === 1 ? "" : "s"} will lose their category — the tasks themselves stay.`
+    ? `Delete "${name}"? ${used.length} task${used.length === 1 ? "" : "s"} will lose that tag — any other tags, and the tasks themselves, stay.`
     : `Delete "${name}"?`;
   if (!confirm(msg)) return;
   try {
-    await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), { categoryId: null })));
+    await Promise.all(used.map((t) => updateDoc(taskDoc(t.id), {
+      categoryIds: t.categoryIds.filter((c) => c !== id),
+    })));
     await deleteDoc(categoryDoc(id));
-    if (sharedCategoryFilter === id) sharedCategoryFilter = "all";
+    categoryFilter.delete(id);
+    taskModalCategories.delete(id);
+    syncCategoryFilterButtons();
     showToast("Category deleted");
   } catch (e) {
     showToast(`Couldn't delete — ${e.message || e.code || "unknown error"}`);
@@ -845,15 +919,21 @@ function populateOwnerSelect() {
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
-// The To-do and Done person filters are deliberately separate settings:
-// To-do filters on who a task is *on* right now, Done on who actually did
-// it, so carrying a choice between them would answer the wrong question.
+// Two separate settings, because they answer different questions. The
+// assignment filter (To-do tab and the Home checklist) is about who a task
+// is *on* right now; the Done one is about who actually did it. Carrying a
+// choice between those would answer the wrong question — but the two views
+// that share a question do share the setting.
+let assignFilter = "mine";
+let doneFilter = "mine";
+
 function populateFilterSelect(sel, kind) {
-  const mineLabel = kind === "done" ? "Done by me" : "Mine";
-  const anyoneLabel = kind === "done" ? "Done by anyone" : "Anyone";
-  const keep = sel.value;
+  const current = kind === "done" ? doneFilter : assignFilter;
   sel.innerHTML = "";
-  [["mine", mineLabel], ["anyone", anyoneLabel]].forEach(([value, label]) => {
+  const labels = kind === "done"
+    ? [["mine", "Done by me"], ["anyone", "Done by anyone"]]
+    : [["mine", "Mine"], ["anyone", "Anyone"]];
+  labels.forEach(([value, label]) => {
     const opt = document.createElement("option");
     opt.value = value;
     opt.textContent = label;
@@ -866,12 +946,30 @@ function populateFilterSelect(sel, kind) {
     opt.textContent = profilesCache[id].name;
     sel.appendChild(opt);
   });
-  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "mine";
+  if (![...sel.options].some((o) => o.value === current)) {
+    if (kind === "done") doneFilter = "mine"; else assignFilter = "mine";
+  }
+  sel.value = kind === "done" ? doneFilter : assignFilter;
 }
 
 function populatePersonFilters() {
   populateFilterSelect($("filter-due"), "due");
+  populateFilterSelect($("filter-checklist"), "due");
   populateFilterSelect($("filter-done"), "done");
+}
+
+function onAssignFilterChange(e) {
+  assignFilter = e.target.value;
+  [$("filter-due"), $("filter-checklist")].forEach((sel) => {
+    if ([...sel.options].some((o) => o.value === assignFilter)) sel.value = assignFilter;
+  });
+  renderDue();
+  renderChecklist();
+}
+
+function onDoneFilterChange(e) {
+  doneFilter = e.target.value;
+  renderDoneList();
 }
 
 function buildDoneBySelect(currentId) {
@@ -1008,7 +1106,10 @@ function normaliseTask(id, raw) {
     owner: raw.owner ?? null,
     assignedTo: raw.assignedTo ?? null,
     takeTurns: !!raw.takeTurns,
-    categoryId: raw.categoryId ?? null,
+    // Categories are tags now — a task written before that had a single one.
+    categoryIds: Array.isArray(raw.categoryIds)
+      ? raw.categoryIds
+      : (raw.categoryId ? [raw.categoryId] : []),
   };
 }
 
@@ -1038,6 +1139,7 @@ function startRollover() {
 
 function renderAll() {
   if (!currentProfile) return;
+  renderChecklist();
   renderDue();
   renderDoneList();
   renderAllTasks();
@@ -1058,23 +1160,25 @@ function matchesDoneFilter(value, doneBy) {
   return doneBy === value;
 }
 
+// Whether a task has an occurrence open right now.
+// A one-off that's already been done or skipped has no "next occurrence" —
+// it only lives on in the Done tab from here. And "pending" (not yet
+// appeared) only hides a task once it's already finished a prior cycle and
+// is waiting for the next one to open up: a task that has never been
+// completed always shows, however far off its due date is, so you can see
+// and plan for it ahead of time.
+function isOpenNow(task, now) {
+  if (task.freq.type === "once" && task.lastCompletion) return false;
+  if (task.lastCompletion && taskStatus(task, now) === "pending") return false;
+  return true;
+}
+
 function renderDue() {
   const now = new Date();
-  const filterVal = $("filter-due").value;
   const sortVal = $("sort-due").value;
 
-  let list_ = Object.values(tasksById).filter((t) => {
-    // A one-off task that's already been done or skipped has no "next
-    // occurrence" to show — it only lives on in the Done tab from here.
-    if (t.freq.type === "once" && t.lastCompletion) return false;
-    // "pending" (not yet appeared) only hides a task once it's already
-    // finished a prior cycle — it's waiting for the next one to open up.
-    // A task that's never been completed should always show here, however
-    // far off its due date is, so you can see and plan for it ahead of time.
-    if (t.lastCompletion && taskStatus(t, now) === "pending") return false;
-    return true;
-  });
-  list_ = list_.filter((t) => matchesAssignFilter(filterVal, t.assignedTo) && matchesCategoryFilter(t));
+  let list_ = Object.values(tasksById).filter((t) => isOpenNow(t, now));
+  list_ = list_.filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t));
 
   if (sortVal === "alpha") {
     list_.sort((a, b) => a.title.localeCompare(b.title));
@@ -1094,11 +1198,10 @@ function renderDue() {
 }
 
 function renderDoneList() {
-  const filterVal = $("filter-done").value;
   const sortVal = $("sort-done").value;
   let done = Object.values(tasksById).filter((t) => !!t.lastCompletion);
   done = done.filter((t) =>
-    matchesDoneFilter(filterVal, t.lastCompletion.skipped ? null : t.lastCompletion.by)
+    matchesDoneFilter(doneFilter, t.lastCompletion.skipped ? null : t.lastCompletion.by)
     && matchesCategoryFilter(t));
 
   const doneAtMs = (t) => t.lastCompletion.at?.toDate?.()?.getTime() ?? 0;
@@ -1112,14 +1215,14 @@ function renderDoneList() {
   done.forEach((t) => list.appendChild(renderDoneRow(t)));
 }
 
-on("filter-due", "change", renderDue);
+on("filter-due", "change", onAssignFilterChange);
+on("filter-checklist", "change", onAssignFilterChange);
 on("sort-due", "change", renderDue);
-on("filter-done", "change", renderDoneList);
+on("filter-done", "change", onDoneFilterChange);
 on("sort-done", "change", renderDoneList);
 on("alltasks-search", "input", renderAllTasks);
 on("alltasks-sort", "change", renderAllTasks);
 on("summary-period", "change", renderSummary);
-CAT_FILTER_IDS.forEach((id) => on(id, "change", onCategoryFilterChange));
 
 function renderAllTasks() {
   if (!currentProfile) return;
@@ -1149,23 +1252,104 @@ function renderAllTasks() {
   const list = $("list-alltasks");
   list.innerHTML = "";
   $("alltasks-empty").classList.toggle("hidden", all.length > 0);
-  all.forEach((t) => list.appendChild(renderAllTasksRow(t)));
+  const now = new Date();
+  all.forEach((t) => list.appendChild(renderAllTasksRow(t, now)));
 }
 
-function buildCategoryChip(task) {
-  const name = categoryName(task.categoryId);
-  if (!name) return null;
-  const chip = document.createElement("span");
-  chip.className = "cat-chip";
-  chip.textContent = name;
-  return chip;
+// Every tag a task carries, as little labels.
+function appendCategoryChips(parent, task) {
+  (task.categoryIds || []).forEach((id) => {
+    const name = categoryName(id);
+    if (!name) return;
+    const chip = document.createElement("span");
+    chip.className = "cat-chip";
+    chip.textContent = name;
+    parent.appendChild(chip);
+  });
+}
+
+// The right-hand side of a base card: where its current occurrence stands.
+// If one is open you get the due date, the colour of whoever it's on, and
+// two small actions — tick it off, or hand it to someone else. If none is
+// open (a finished one-off, or a repeat waiting on its next turn) it greys
+// out and reports who did it last instead.
+function buildInstancePanel(task, now) {
+  const wrap = document.createElement("div");
+  wrap.className = "base-instance";
+  const lc = task.lastCompletion;
+
+  if (isOpenNow(task, now)) {
+    const status = taskStatus(task, now);
+    wrap.classList.add("live");
+    if (status === "overdue") wrap.classList.add("overdue");
+    wrap.style.setProperty("--inst", task.assignedTo && profilesCache[task.assignedTo]
+      ? colorForProfile(task.assignedTo)
+      : "var(--grey-done)");
+
+    const when = document.createElement("span");
+    when.className = "inst-when";
+    when.textContent = status === "overdue"
+      ? `Overdue ${fmtDue(task.dueAt.toDate(), task.hasTime)}`
+      : `Due ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+    wrap.appendChild(when);
+
+    const actions = document.createElement("div");
+    actions.className = "inst-actions";
+    actions.appendChild(buildAvatar(task.assignedTo, { small: true }));
+
+    const doneBtn = document.createElement("button");
+    doneBtn.type = "button";
+    doneBtn.className = "inst-btn inst-done";
+    doneBtn.innerHTML = checkIconSvg();
+    doneBtn.title = "Mark done";
+    doneBtn.setAttribute("aria-label", `Mark ${task.title} done`);
+    doneBtn.onclick = () => openDoneModal(task);
+    actions.appendChild(doneBtn);
+
+    const assignBtn = document.createElement("button");
+    assignBtn.type = "button";
+    assignBtn.className = "inst-btn inst-assign";
+    assignBtn.innerHTML = personIconSvg();
+    assignBtn.title = "Give this one to someone";
+    assignBtn.setAttribute("aria-label", `Assign ${task.title}`);
+    assignBtn.onclick = () => openAssignModal(task, "assign");
+    actions.appendChild(assignBtn);
+
+    wrap.appendChild(actions);
+  } else {
+    wrap.classList.add("dormant");
+    const label = document.createElement("span");
+    label.className = "inst-when";
+    label.textContent = lc && lc.skipped ? "Skipped" : "Last done";
+    wrap.appendChild(label);
+
+    const who = document.createElement("div");
+    who.className = "inst-actions";
+    if (lc && !lc.skipped) who.appendChild(buildAvatar(lc.by, { small: true }));
+    const name = document.createElement("span");
+    name.className = "inst-who";
+    name.textContent = lc
+      ? [lc.skipped ? null : (profilesCache[lc.by]?.name || "Someone"),
+         lc.at ? fmtRelative(lc.at.toDate()) : null].filter(Boolean).join(" · ")
+      : "—";
+    who.appendChild(name);
+    wrap.appendChild(who);
+
+    if (task.freq.type !== "once") {
+      const next = document.createElement("span");
+      next.className = "inst-next";
+      next.textContent = `Back ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+      wrap.appendChild(next);
+    }
+  }
+  return wrap;
 }
 
 // The base task itself — not an occurrence of it. Deliberately a different
 // shape from the To-do / Done rows: it carries the owner (whose task this is
 // by default) rather than a per-occurrence assignment, and it's tinted in
 // the owner's colour so you can see at a glance whose things these are.
-function renderAllTasksRow(task) {
+function renderAllTasksRow(task, now) {
   const li = document.createElement("li");
   li.className = "task-row base-card";
   if (task.owner && profilesCache[task.owner]) {
@@ -1179,8 +1363,7 @@ function renderAllTasksRow(task) {
   const kicker = document.createElement("div");
   kicker.className = "base-kicker";
   kicker.textContent = freqSummary(task.freq);
-  const chip = buildCategoryChip(task);
-  if (chip) kicker.appendChild(chip);
+  appendCategoryChips(kicker, task);
   if (task.takeTurns && task.freq.type !== "once") {
     const turns = document.createElement("span");
     turns.className = "turns-chip";
@@ -1217,6 +1400,114 @@ function renderAllTasksRow(task) {
   main.appendChild(meta);
 
   li.appendChild(main);
+  li.appendChild(buildInstancePanel(task, now));
+  return li;
+}
+
+// ---------- Home: at-a-glance checklist ----------
+// Everything currently open, as a tickable list, with whatever was finished
+// in the last day shown already ticked off underneath. Ticking marks it done
+// as whoever's active; unticking puts it back.
+const RECENTLY_DONE_MS = 24 * 60 * 60 * 1000;
+
+function renderChecklist() {
+  const list = $("home-checklist");
+  if (!list || !currentProfile) return;
+  const now = new Date();
+
+  const open = Object.values(tasksById)
+    .filter((t) => isOpenNow(t, now))
+    .filter((t) => matchesAssignFilter(assignFilter, t.assignedTo) && matchesCategoryFilter(t))
+    .sort((a, b) => a.dueAt.toDate() - b.dueAt.toDate());
+
+  // The ticked-off half matches on who actually did it — that's whose tick
+  // it is — rather than on who the next one is assigned to.
+  const recent = Object.values(tasksById)
+    .filter((t) => {
+      const at = t.lastCompletion?.at?.toDate?.();
+      return at && now - at <= RECENTLY_DONE_MS;
+    })
+    .filter((t) =>
+      matchesDoneFilter(assignFilter, t.lastCompletion.skipped ? null : t.lastCompletion.by)
+      && matchesCategoryFilter(t))
+    .sort((a, b) => b.lastCompletion.at.toDate() - a.lastCompletion.at.toDate());
+
+  list.innerHTML = "";
+  $("checklist-empty").classList.toggle("hidden", open.length + recent.length > 0);
+
+  open.forEach((t) => list.appendChild(buildCheckRow(t, now)));
+
+  if (recent.length) {
+    const head = document.createElement("li");
+    head.className = "check-divider";
+    head.textContent = `Done in the last day (${recent.length})`;
+    list.appendChild(head);
+    recent.forEach((t) => list.appendChild(buildCheckRow(t, now, true)));
+  }
+}
+
+function buildCheckRow(task, now, done = false) {
+  const li = document.createElement("li");
+  li.className = `check-row${done ? " checked" : ""}`;
+  const status = done ? null : taskStatus(task, now);
+  if (status === "overdue") li.classList.add("overdue");
+
+  const box = document.createElement("button");
+  box.type = "button";
+  box.className = "check-box";
+  box.setAttribute("role", "checkbox");
+  box.setAttribute("aria-checked", done ? "true" : "false");
+  box.setAttribute("aria-label", done ? `Undo ${task.title}` : `Mark ${task.title} done`);
+  if (done) {
+    const lc = task.lastCompletion;
+    box.textContent = lc.skipped ? "–" : "✓";
+    if (lc.skipped) box.classList.add("skipped");
+    else if (lc.by && profilesCache[lc.by]) box.style.background = colorForProfile(lc.by);
+    box.onclick = () => undoCompletion(task);
+  } else {
+    box.onclick = () => completeTask(task, currentProfile.id, false);
+  }
+  li.appendChild(box);
+
+  const main = document.createElement("div");
+  main.className = "check-main";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "check-title-row";
+  const title = document.createElement("span");
+  title.className = "check-title";
+  title.textContent = task.title;
+  titleRow.appendChild(title);
+  appendCategoryChips(titleRow, task);
+  main.appendChild(titleRow);
+
+  const meta = document.createElement("span");
+  meta.className = "check-meta";
+  if (done) {
+    const lc = task.lastCompletion;
+    const who = lc.skipped
+      ? "Skipped"
+      : (profilesCache[lc.by]?.name || "Someone");
+    meta.textContent = `${who} · ${fmtRelative(lc.at.toDate())}`;
+  } else {
+    const whose = task.assignedTo && profilesCache[task.assignedTo]
+      ? profilesCache[task.assignedTo].name
+      : "Unassigned";
+    meta.textContent = status === "overdue"
+      ? `${whose} · overdue since ${fmtDue(task.dueAt.toDate(), task.hasTime)}`
+      : `${whose} · due ${fmtDue(task.dueAt.toDate(), task.hasTime)}`;
+  }
+  main.appendChild(meta);
+  li.appendChild(main);
+
+  if (!done && task.priority) {
+    const star = document.createElement("span");
+    star.className = `check-star p${task.priority}`;
+    star.textContent = "★";
+    star.title = PRIORITY_LABELS[task.priority];
+    li.appendChild(star);
+  }
+
   return li;
 }
 
@@ -1253,15 +1544,17 @@ function renderSummary() {
   const start = summaryPeriodStart(period);
   const label = summaryPeriodLabel(period);
 
-  // Older log entries predate the category field, so fall back to the
-  // category the task carries now.
-  const rowCategory = (r) => r.categoryId ?? tasksById[r.taskId]?.categoryId ?? null;
+  // Older log entries predate the category field (and predate it being a
+  // list), so fall back to whatever tags the task carries now.
+  const rowCategories = (r) => {
+    if (Array.isArray(r.categoryIds)) return r.categoryIds;
+    if (r.categoryId) return [r.categoryId];
+    return tasksById[r.taskId]?.categoryIds || [];
+  };
   const rows = logRows.filter((r) => {
     const at = r.doneAt?.toDate?.();
     if (start && (!at || at < start)) return false;
-    if (sharedCategoryFilter === "all") return true;
-    if (sharedCategoryFilter === "none") return !rowCategory(r);
-    return rowCategory(r) === sharedCategoryFilter;
+    return matchesCategoryFilter({ categoryIds: rowCategories(r) });
   });
 
   // Per person: what they did in the window, plus what's on them right now.
@@ -1415,8 +1708,7 @@ function renderOpenRow(task, now) {
   title.className = "task-title";
   title.textContent = task.title;
   titleRow.appendChild(title);
-  const chip = buildCategoryChip(task);
-  if (chip) titleRow.appendChild(chip);
+  appendCategoryChips(titleRow, task);
   if (status === "overdue") {
     const badge = document.createElement("span");
     badge.className = "status-badge overdue";
@@ -1484,8 +1776,7 @@ function renderDoneRow(task) {
   title.className = "task-title";
   title.textContent = task.title;
   titleRow.appendChild(title);
-  const chip = buildCategoryChip(task);
-  if (chip) titleRow.appendChild(chip);
+  appendCategoryChips(titleRow, task);
 
   const meta = document.createElement("div");
   meta.className = "task-meta";
@@ -1549,6 +1840,17 @@ async function completeTask(task, byId, skipped) {
     ? nextTurnProfile(basis)
     : (task.owner ?? null);
 
+  // Log first so the completion can point at its own log entry — that's
+  // what lets an undo take the entry back out again.
+  const logRef = await addDoc(logCol(), {
+    taskId: task.id,
+    taskTitle: task.title,
+    categoryIds: task.categoryIds || [],
+    doneBy: skipped ? null : byId,
+    doneByName: skipped ? null : (profilesCache[byId]?.name || "Someone"),
+    skipped: !!skipped,
+    doneAt: serverTimestamp(),
+  });
   await updateDoc(taskDoc(task.id), {
     dueAt: Timestamp.fromDate(nextDue),
     prevDueAt,
@@ -1558,16 +1860,8 @@ async function completeTask(task, byId, skipped) {
       by: skipped ? null : byId,
       at: serverTimestamp(),
       skipped: !!skipped,
+      logId: logRef.id,
     },
-  });
-  await addDoc(logCol(), {
-    taskId: task.id,
-    taskTitle: task.title,
-    categoryId: task.categoryId ?? null,
-    doneBy: skipped ? null : byId,
-    doneByName: skipped ? null : (profilesCache[byId]?.name || "Someone"),
-    skipped: !!skipped,
-    doneAt: serverTimestamp(),
   });
 
   let msg = skipped ? "Skipped" : "Marked done";
@@ -1577,12 +1871,23 @@ async function completeTask(task, byId, skipped) {
   showToast(msg);
 }
 
+// Undo puts the occurrence back and takes its log entry with it — otherwise
+// the Log and the Summary would keep crediting work that didn't happen.
 async function undoCompletion(task) {
+  const logId = task.lastCompletion && task.lastCompletion.logId;
   await updateDoc(taskDoc(task.id), {
     dueAt: task.prevDueAt || task.dueAt,
     assignedTo: task.prevAssignedTo ?? task.owner ?? null,
     lastCompletion: null,
   });
+  if (logId) {
+    try {
+      await deleteDoc(logDoc(logId));
+    } catch (e) {
+      // Completions logged before this existed have no id to delete; the
+      // task is already back, which is the part that matters.
+    }
+  }
 }
 
 // ---------- "mark done by" modal ----------
@@ -1652,7 +1957,10 @@ function openAddTaskModal() {
   $("input-task-time").value = "";
   $("input-task-owner").value = "";
   $("input-task-taketurns").checked = false;
-  $("input-task-category").value = sortedCategoryIds.includes(sharedCategoryFilter) ? sharedCategoryFilter : "";
+  // If you're filtering by a category, a new task starts tagged with it.
+  taskModalCategories.clear();
+  categoryFilter.forEach((id) => { if (id !== "none") taskModalCategories.add(id); });
+  renderTaskCategoryChips();
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.add("hidden");
   updateFreqRows();
@@ -1678,7 +1986,9 @@ function openEditTaskModal(task) {
     : "";
   $("input-task-owner").value = task.owner || "";
   $("input-task-taketurns").checked = !!task.takeTurns;
-  $("input-task-category").value = task.categoryId || "";
+  taskModalCategories.clear();
+  (task.categoryIds || []).forEach((id) => { if (categoriesCache[id]) taskModalCategories.add(id); });
+  renderTaskCategoryChips();
   $("task-modal-error").textContent = "";
   $("btn-delete-task").classList.remove("hidden");
   updateFreqRows();
@@ -1711,7 +2021,7 @@ async function saveTask() {
   const dueDate = hasTime ? new Date(`${dateStr}T${timeStr}`) : new Date(`${dateStr}T00:00`);
   const owner = $("input-task-owner").value || null;
   const takeTurns = type !== "once" && $("input-task-taketurns").checked;
-  const categoryId = $("input-task-category").value || null;
+  const categoryIds = [...taskModalCategories];
 
   $("btn-save-task").disabled = true;
   try {
@@ -1719,7 +2029,7 @@ async function saveTask() {
       const existing = tasksById[editingTaskId];
       const patch = {
         title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
-        owner, takeTurns, categoryId,
+        owner, takeTurns, categoryIds,
       };
       // Changing the owner carries the currently-open occurrence with it,
       // unless somebody has already taken that occurrence off the owner.
@@ -1731,7 +2041,7 @@ async function saveTask() {
     } else {
       await addDoc(tasksCol(), {
         title, freq, dueAt: Timestamp.fromDate(dueDate), hasTime,
-        owner, assignedTo: owner, takeTurns, categoryId, priority: 0,
+        owner, assignedTo: owner, takeTurns, categoryIds, priority: 0,
         createdBy: currentProfile.id, createdAt: serverTimestamp(),
       });
     }

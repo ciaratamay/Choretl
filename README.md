@@ -92,9 +92,13 @@ There's a difference between a **task** and a **time it comes around**, and
 the tabs split along that line:
 
 - **All tasks** is the tasks themselves. Each one has an **owner** — whose job
-  it is by default — and the card is tinted in that person's colour. Set a
-  category here too, and turn on **take turns** if a repeating task should
-  rotate rather than always land on the owner.
+  it is by default — and the card is tinted in that person's colour. Turn on
+  **take turns** if a repeating task should rotate rather than always land on
+  the owner. The right-hand side of each card shows where its current
+  occurrence stands: the due date, the colour of whoever it's on, and two
+  buttons — tick it off, or hand it to someone else. When nothing's open (a
+  finished one-off, or a repeat waiting its turn) that side greys out and
+  tells you who did it last instead.
 - **To-do** and **Done** show the individual times a task comes around, as
   flatter rows with a coloured stripe for whoever it's on. Reassigning one of
   these only changes that one occurrence; next time it goes back to the owner
@@ -104,10 +108,19 @@ the tabs split along that line:
 **Priority** is the star, tapped up through three steps: outline (normal) →
 yellow (high) → bigger yellow (highest). Sort by it in either tab.
 
-**Categories** are whatever you want them to be — garden, children, car. Make
-and rename them under **Edit categories** on the Home tab; the category filter
-sits in every tab and carries your choice between them. Deleting a category
-leaves its tasks alone, it just unlabels them.
+**Categories** work like tags — garden, children, car — and a task can carry
+as many as suit it. Make and rename them under **Edit categories** on the Home
+tab, tag a task by tapping the chips in its editor, and filter by any
+combination: pick two and you'll see tasks carrying either. The filter sits in
+every tab and carries your choice between them. Deleting a category leaves its
+tasks alone, it just takes that one tag off them.
+
+**At a glance** on the Home tab is the quick version: everything open as a
+tickable list, with whatever was finished in the last day shown ticked off
+underneath. Ticking marks it done as whoever you're viewing as — no "who did
+this?" prompt, since on your own checklist the answer is you — and unticking
+undoes it, log entry and all. It shares its person filter with the To-do tab,
+since both are asking the same question.
 
 **Summary** answers who's actually doing what, over this week, this month, a
 rolling 7 or 30 days, or all time.

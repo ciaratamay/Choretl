@@ -779,12 +779,87 @@ body.modal-open { overflow: hidden; }
    with the repeat and category up top. To-do and Done show one occurrence
    of it: a coloured stripe down the side for whoever it's on. */
 
+/* Base card = the task on the left, where its current occurrence stands on
+   the right. The right column wraps underneath on a narrow screen. */
 .base-card {
   border-radius: 14px;
   border-width: 1px;
-  padding: 13px 16px 14px;
-  flex-direction: column;
+  padding: 13px 14px 14px 16px;
+  flex-wrap: wrap;
   align-items: stretch;
+  gap: 12px;
+}
+
+.base-card .task-main { flex: 1 1 190px; }
+
+.base-instance {
+  flex: 0 1 auto;
+  min-width: 124px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  padding-left: 11px;
+  border-left: 3px solid var(--inst, var(--line));
+  text-align: right;
+}
+
+.base-instance.dormant {
+  border-left-color: var(--line);
+  color: var(--grey-done);
+}
+
+.inst-when {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  line-height: 1.25;
+}
+.base-instance.overdue .inst-when { color: #A3401C; }
+.base-instance.dormant .inst-when { color: var(--grey-done); }
+
+.inst-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inst-who {
+  font-size: 0.78rem;
+  color: var(--grey-done);
+  font-weight: 500;
+}
+
+.inst-next {
+  font-size: 0.72rem;
+  color: var(--grey-done);
+}
+
+.inst-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.inst-btn.inst-done:hover {
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  color: #fff;
+}
+.inst-btn.inst-assign:hover {
+  border-color: var(--blue-dark);
+  color: var(--blue-dark);
 }
 
 .base-kicker {
@@ -1092,4 +1167,162 @@ body.modal-open { overflow: hidden; }
 @media (max-width: 360px) {
   .modal-row .field { flex: 1 1 100%; }
   .fab { padding: 12px 18px; font-size: 0.9rem; }
+}
+
+/* ---------- Tag chips (pick categories, filter by them) ---------- */
+
+.chip-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.chip {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 7px 13px;
+  line-height: 1.2;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.chip:hover { border-color: var(--blue-dark); color: var(--blue-dark); }
+.chip.selected {
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  color: #fff;
+}
+.chip.selected::before {
+  content: "✓ ";
+  font-weight: 700;
+}
+
+/* The category filter button doubles as a readout of what's picked. */
+.cat-btn {
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-align: left;
+}
+.cat-btn.filtering {
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  color: #fff;
+}
+
+/* ---------- Home: at-a-glance checklist ---------- */
+
+.checklist-wrap {
+  max-width: 460px;
+  margin: 26px auto 0;
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.checklist:empty { display: none; }
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--blue-tint);
+}
+.check-row:last-child { border-bottom: none; }
+.check-row.overdue { background: #FFF8F3; }
+
+.check-box {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border: 2px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.check-box:hover { border-color: var(--blue-dark); }
+.check-row.checked .check-box {
+  border-color: transparent;
+  background: var(--grey-done);
+}
+.check-box.skipped {
+  background: #FCEAEA;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.check-main { flex: 1; min-width: 0; }
+
+.check-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.check-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.check-row.checked .check-title {
+  color: var(--ink-soft);
+  font-weight: 500;
+  text-decoration: line-through;
+  text-decoration-color: var(--grey-done);
+}
+
+.check-meta {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+.check-row.overdue .check-meta { color: #A3401C; font-weight: 600; }
+
+.check-star {
+  flex-shrink: 0;
+  color: #D9A520;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.check-star.p2 { font-size: 1.25rem; line-height: 1.15; }
+
+.check-divider {
+  padding: 9px 14px;
+  background: var(--blue-tint);
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.checklist-wrap .pane-head h2 { font-size: 1.05rem; }
+
+@media (max-width: 560px) {
+  .checklist-wrap { margin-top: 20px; }
+  .chip { padding: 9px 14px; font-size: 0.9rem; }
+  .check-row { padding: 12px 13px; }
+  .check-box { width: 26px; height: 26px; }
 }

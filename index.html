@@ -136,6 +136,18 @@
           <button class="icon-btn" id="btn-edit-categories">Edit categories</button>
           <button class="link-btn link-btn-muted" id="btn-leave-household-2">Leave this household</button>
         </div>
+
+        <section class="checklist-wrap">
+          <div class="pane-head">
+            <h2>At a glance</h2>
+            <div class="pane-head-controls">
+              <select class="filter-select" id="filter-checklist"></select>
+              <button type="button" class="filter-select cat-btn" id="filter-cat-home">All categories</button>
+            </div>
+          </div>
+          <ul class="checklist" id="home-checklist"></ul>
+          <p class="empty-note hidden" id="checklist-empty">Nothing on the list. Nicely done.</p>
+        </section>
       </div>
 
       <!-- Create / rename / delete categories -->
@@ -165,7 +177,7 @@
         <h2>To-do</h2>
         <div class="pane-head-controls">
           <select class="filter-select" id="filter-due"></select>
-          <select class="filter-select cat-select" id="filter-cat-due"></select>
+          <button type="button" class="filter-select cat-btn" id="filter-cat-due">All categories</button>
           <select class="filter-select" id="sort-due">
             <option value="dueDate">Soonest due</option>
             <option value="alpha">A&ndash;Z</option>
@@ -183,7 +195,7 @@
         <h2>Done</h2>
         <div class="pane-head-controls">
           <select class="filter-select" id="filter-done"></select>
-          <select class="filter-select cat-select" id="filter-cat-done"></select>
+          <button type="button" class="filter-select cat-btn" id="filter-cat-done">All categories</button>
           <select class="filter-select" id="sort-done">
             <option value="recent">Most recently done</option>
             <option value="oldest">Least recently done</option>
@@ -200,7 +212,7 @@
       <div class="pane-head">
         <h2>All tasks</h2>
         <div class="pane-head-controls">
-          <select class="filter-select cat-select" id="filter-cat-alltasks"></select>
+          <button type="button" class="filter-select cat-btn" id="filter-cat-alltasks">All categories</button>
           <select class="filter-select" id="alltasks-sort">
             <option value="alpha">A&ndash;Z</option>
             <option value="priority">Priority</option>
@@ -223,7 +235,7 @@
       <div class="pane-head">
         <h2>Summary</h2>
         <div class="pane-head-controls">
-          <select class="filter-select cat-select" id="filter-cat-summary"></select>
+          <button type="button" class="filter-select cat-btn" id="filter-cat-summary">All categories</button>
           <select class="filter-select" id="summary-period">
             <option value="week">This week</option>
             <option value="7">Last 7 days</option>
@@ -338,11 +350,10 @@
     </div>
 
     <div class="field">
-      <label for="input-task-category">Category</label>
-      <select id="input-task-category">
-        <option value="">No category</option>
-      </select>
+      <label>Categories</label>
+      <div class="chip-picker" id="input-task-categories"></div>
       <p class="hint-text" id="category-empty-hint">Add categories from the Home tab.</p>
+      <p class="hint-text" id="category-multi-hint">Tap to tag this task &mdash; it can carry as many as you like.</p>
     </div>
 
     <p class="error-text" id="task-modal-error"></p>
@@ -382,6 +393,23 @@
       <div style="flex:1"></div>
       <button class="icon-btn" id="btn-cancel-done">Cancel</button>
       <button class="primary-btn" id="btn-confirm-done" style="width:auto;">Mark done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CATEGORY FILTER MODAL ================= -->
+<div class="modal-backdrop hidden" id="catfilter-modal-backdrop">
+  <div class="modal">
+    <h2>Filter by category</h2>
+    <div class="modal-body">
+      <p class="hint-text" style="margin-top:0;">Pick as many as you like &mdash; tasks tagged with any of them will show. This applies to every tab.</p>
+      <div class="chip-picker" id="catfilter-options"></div>
+      <p class="hint-text hidden" id="catfilter-empty">No categories yet &mdash; add some under &ldquo;Edit categories&rdquo; on the Home tab.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="text-btn" id="btn-clear-catfilter">Clear</button>
+      <div style="flex:1"></div>
+      <button class="primary-btn" id="btn-close-catfilter" style="width:auto;">Done</button>
     </div>
   </div>
 </div>
